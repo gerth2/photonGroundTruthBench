@@ -25,6 +25,7 @@ class ManualControlMode(PeriodicOpMode):
     SENSITIVITY_DEG = 45.0
 
     def __init__(self, robot: Robot) -> None:
+        super().__init__()
         self._robot = robot
         self._stick = wpilib.Joystick(0)
 

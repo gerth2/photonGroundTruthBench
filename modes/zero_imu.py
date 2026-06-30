@@ -26,6 +26,7 @@ class Phase(Enum):
 @utility(name="Zero IMU", group="Calibration")
 class ZeroIMUMode(PeriodicOpMode):
     def __init__(self, robot: Robot) -> None:
+        super().__init__()
         self._robot = robot
         self._phase: Phase = Phase.ZEROING
 

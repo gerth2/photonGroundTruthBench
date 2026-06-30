@@ -53,6 +53,7 @@ class DynamicSweepTest(PeriodicOpMode):
     """
 
     def __init__(self, robot: Robot) -> None:
+        super().__init__()
         self._robot = robot
 
         vc = BenchConfig.validation

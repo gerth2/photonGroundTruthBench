@@ -46,6 +46,7 @@ class Phase(Enum):
 @utility(name="Calibrate Servos", group="Calibration")
 class CalibrateServosMode(PeriodicOpMode):
     def __init__(self, robot: Robot) -> None:
+        super().__init__()
         self._robot = robot
 
         cfg = BenchConfig.calibration
