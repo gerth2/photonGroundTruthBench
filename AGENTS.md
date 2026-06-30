@@ -61,7 +61,7 @@ The `Robot` instance is passed to each OpMode constructor (via `addOpMode`'s fac
 |---|---|
 | Sync deps | `robotpy sync` |
 | Deploy to roboRIO | `robotpy deploy` |
-| Run sim (desktop) | `python robot.py sim` |
+| Run sim (desktop) | `robotpy sim` |
 | Run tests | `python -m pytest tests/` |
 | Format | `ruff format .` |
 | Lint | `ruff check .` |

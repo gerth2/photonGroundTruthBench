@@ -4,8 +4,8 @@
         {
             "label": "sim",
             "type": "shell",
-            "command": "uv run python robot.py sim",
-            "detail": "Run the robot simulator on desktop",
+            "command": "uv run robotpy sim",
+            "detail": "Run the robot simulator (with GUI, via robotpy CLI)",
             "group": "test"
         },
         {

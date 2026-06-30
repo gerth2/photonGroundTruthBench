@@ -52,7 +52,7 @@ The robot uses the **OpModeRobot** framework — modes are registered with `@tel
 robotpy sync
 
 # Simulation
-python robot.py sim
+robotpy sim
 
 # Tests
 python -m pytest tests/
