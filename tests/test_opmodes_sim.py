@@ -167,8 +167,8 @@ def test_profile_finished_after_convergence(robot: Robot) -> None:
 # ── Storage-path fallback tests ────────────────────────────────────
 
 
-def test_static_pose_storage_fallback_on_perm_error(robot: Robot) -> None:
-    """_flush_csv must fall back to cwd-relative path when configured path is unwritable."""
+def test_static_pose_storage_uses_cwd_in_sim(robot: Robot) -> None:
+    """_flush_csv must use cwd-relative path when RobotBase.isSimulation() is True."""
     mode = StaticPoseTest(robot)
     mode._results = [
         WindowResult(
@@ -191,12 +191,12 @@ def test_static_pose_storage_fallback_on_perm_error(robot: Robot) -> None:
             },
         )
     ]
-    mode._storage_path = "/nonexistent_dir_xyz/calibration_data"
+    # Configured path is irrelevant when isSimulation() — must use cwd-relative.
+    mode._storage_path = "/some/unwritable/path"
     mode._flush_csv()
 
     expected = os.path.join(os.getcwd(), "calibration_data", "static_pose_results.csv")
-    assert os.path.isfile(expected), f"CSV not written to fallback path: {expected}"
+    assert os.path.isfile(expected), f"CSV not written to cwd-relative path: {expected}"
 
-    # Cleanup.
     os.remove(expected)
     os.rmdir(os.path.dirname(expected))

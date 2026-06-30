@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
+import wpilib
 from wpilib import PeriodicOpMode, SmartDashboard
 from wpimath import Pose3d, Rotation3d, Transform3d
 
@@ -309,12 +310,13 @@ class StaticPoseTest(PeriodicOpMode):
     # ── CSV I/O ────────────────────────────────────────────────────────
 
     def _flush_csv(self) -> None:
-        try:
-            os.makedirs(self._storage_path, exist_ok=True)
-        except OSError:
-            self._storage_path = os.path.join(os.getcwd(), "calibration_data")
-            os.makedirs(self._storage_path, exist_ok=True)
-        path = os.path.join(self._storage_path, "static_pose_results.csv")
+        storage = (
+            os.path.join(os.getcwd(), "calibration_data")
+            if wpilib.RobotBase.isSimulation()
+            else self._storage_path
+        )
+        os.makedirs(storage, exist_ok=True)
+        path = os.path.join(storage, "static_pose_results.csv")
 
         with open(path, "w", newline="") as f:
             w = csv.writer(f)
