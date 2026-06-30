@@ -12,7 +12,7 @@ import math
 from typing import TYPE_CHECKING
 
 import wpilib
-from wpilib import OpMode
+from wpilib import PeriodicOpMode
 
 if TYPE_CHECKING:
     from robot import Robot
@@ -21,7 +21,7 @@ from robot import teleop  # noqa: E402
 
 
 @teleop(name="Manual Operation", group="Bench")
-class ManualControlMode(OpMode):
+class ManualControlMode(PeriodicOpMode):
     SENSITIVITY_DEG = 45.0
 
     def __init__(self, robot: Robot) -> None:

@@ -10,7 +10,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 import wpilib
-from wpilib import OpMode
+from wpilib import PeriodicOpMode
 
 if TYPE_CHECKING:
     from robot import Robot
@@ -24,7 +24,7 @@ class Phase(Enum):
 
 
 @utility(name="Zero IMU", group="Calibration")
-class ZeroIMUMode(OpMode):
+class ZeroIMUMode(PeriodicOpMode):
     def __init__(self, robot: Robot) -> None:
         self._robot = robot
         self._phase: Phase = Phase.ZEROING

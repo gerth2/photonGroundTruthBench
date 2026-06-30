@@ -21,7 +21,7 @@ import math
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
-from wpilib import OpMode
+from wpilib import PeriodicOpMode
 
 from config.bench_config import BenchConfig
 
@@ -41,7 +41,7 @@ class Phase(Enum):
 
 
 @autonomous(name="Static Pose Test", group="Validation")
-class StaticPoseTest(OpMode):
+class StaticPoseTest(PeriodicOpMode):
     """Validate PV accuracy at a set of static poses.
 
     Phase machine:

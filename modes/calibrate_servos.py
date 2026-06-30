@@ -22,7 +22,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 import wpilib
-from wpilib import OpMode
+from wpilib import PeriodicOpMode
 from wpimath import Rotation3d
 
 from config.bench_config import BenchConfig
@@ -44,7 +44,7 @@ class Phase(Enum):
 
 
 @utility(name="Calibrate Servos", group="Calibration")
-class CalibrateServosMode(OpMode):
+class CalibrateServosMode(PeriodicOpMode):
     def __init__(self, robot: Robot) -> None:
         self._robot = robot
 

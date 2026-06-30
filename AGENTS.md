@@ -31,9 +31,10 @@ tests/                    — pytest (robotpy-sim or sim-only)
 
 ```python
 from robot import teleop, autonomous, utility
+from wpilib import PeriodicOpMode
 
 @teleop("Manual Control", group="Bench")
-class MyTeleop(OpMode):
+class MyTeleop(PeriodicOpMode):
     def __init__(self, robot: Robot): ...
     def start(self): ...
     def periodic(self): ...

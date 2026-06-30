@@ -10,10 +10,10 @@ Decorator helpers:
 Usage in a mode file::
 
     from robot import utility
-    from wpilib import OpMode
+    from wpilib import PeriodicOpMode
 
     @utility("Calibrate Servos")
-    class MyMode(OpMode):
+    class MyMode(PeriodicOpMode):
         def __init__(self, robot: Robot):
             self._robot = robot
         def start(self): ...
@@ -164,12 +164,12 @@ class Robot(OpModeRobot):
             camera_to_robot=Transform3d(),
         )
 
-        self._publish_static_targets(cfg)
-
-    def robotInit(self) -> None:
+        # Register all decorated OpModes (from the late-imported mode files).
         for cls_, mode, name, group, desc in _registry:
             self.addOpMode(cls_, mode, name, group, desc)
         self.publishOpModes()
+
+        self._publish_static_targets(cfg)
 
     def robotPeriodic(self) -> None:
         self.sensors.periodic()
