@@ -65,22 +65,24 @@ class CalibrateServosMode(PeriodicOpMode):
 
     def start(self) -> None:
         self._robot.positioner.disable_feedback()
-        self._phase = Phase.ZEROING
         self._point_index = 0
         self._cycle_count = 0
-        self._points = []
         self._sample_buffer = []
         self._results = []
-        self._robot.sensors.start_zeroing()
 
-        for _ in range(self._num_points):
-            self._points.append(
-                (
-                    random.uniform(-0.8, 0.8),
-                    random.uniform(-0.8, 0.8),
-                    random.uniform(-0.8, 0.8),
-                )
+        # Populate points before setting phase so periodic() never sees
+        # an empty list (regardless of is_zeroed() returning True).
+        self._points = [
+            (
+                random.uniform(-0.8, 0.8),
+                random.uniform(-0.8, 0.8),
+                random.uniform(-0.8, 0.8),
             )
+            for _ in range(self._num_points)
+        ]
+
+        self._phase = Phase.ZEROING
+        self._robot.sensors.start_zeroing()
 
     def periodic(self) -> None:
         if self._phase is Phase.ZEROING:
@@ -88,7 +90,7 @@ class CalibrateServosMode(PeriodicOpMode):
                 self._phase = Phase.MOVING
             return
 
-        if self._point_index >= self._num_points:
+        if self._point_index >= self._num_points or not self._points:
             self._phase = Phase.DONE
             self._completed = True
             self._write_csv()

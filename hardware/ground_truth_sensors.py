@@ -53,6 +53,7 @@ class GroundTruthSensors(Subsystem):
 
     def start_zeroing(self) -> None:
         self._zeroing_active = True
+        self._zeroed = False
         self._zeroing_idx = 0
         self._zeroing_sum_x = 0.0
         self._zeroing_sum_y = 0.0
