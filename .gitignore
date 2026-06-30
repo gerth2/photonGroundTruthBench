@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+*.sim
+sim.*
+
+# calibration artifacts
+calibration_data/
+calibration_fit.png
+
+# generated calibration data (not the template)
+calibration_data/
+calibration_fit.png

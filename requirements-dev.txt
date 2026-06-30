@@ -1,0 +1,6 @@
+robotpy[apriltag,commands2,sim]==2027.0.0a6.post1
+ruff
+mypy
+pytest
+numpy
+matplotlib
