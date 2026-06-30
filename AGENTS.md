@@ -70,6 +70,15 @@ The `Robot` instance is passed to each OpMode constructor (via `addOpMode`'s fac
 
 Run `lint -> typecheck -> test` before committing. All three are expected to pass.
 
+## Development workflow
+
+1. **Code review the delta** — every change must include a review of what was added/changed.
+2. **New unit test** — every change must include a new unit test (or modification of an existing test) that covers the new behavior.
+3. **All tests pass** — after each change, the full test suite must pass before moving on.
+4. **Iterate until green** — if tests fail, fix the code (not the tests). Only ask the user about deleting a test if it genuinely appears obsolete.
+5. **Audit docs** — after each change, review `README.md` and `AGENTS.md`, and update them to reflect the current state of the project. Do not include development history ("first we tried X, then Y") in any file — git history provides that. Plainly state how the code works *now*.
+6. **Commit per change** — after each change passes all checks, commit and push. Summarise *why* the change is important in the commit message, not just what changed.
+
 ## Dependencies (pyproject.toml)
 
 - `robotpy>=2027` (metapackage, includes OpModeRobot)
@@ -115,6 +124,7 @@ Bench coordinate system defined in `config/bench_config.py`:
 - **+Z**: up.
 
 Update `CADConstants` class when CAD changes:
+- `camera_pose_in_bench` — `Pose3d` camera translation in bench frame (rotation from IMU).
 - `camera_to_imu` — `Transform3d` from camera reference to IMU chip.
 - `camera_focal_point_offset` — `Translation3d` from camera ref to lens focal point.
 - `apriltag6_pose`, `apriltag7_pose`, `charuco_board_pose` — fixed `Pose3d` in bench frame.

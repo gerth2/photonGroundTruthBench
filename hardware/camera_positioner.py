@@ -106,8 +106,11 @@ class CameraPositioner(Subsystem):
         self._desired_roll: float | None = None
 
         self._profiled_pitch: float = 0.0  # rad — trapezoid profile setpoint
-        self._profiled_yaw: float = 0.0    # rad
-        self._profiled_roll: float = 0.0   # rad
+        self._profiled_yaw: float = 0.0  # rad
+        self._profiled_roll: float = 0.0  # rad
+        self._profiled_pitch_vel: float = 0.0  # rad/s
+        self._profiled_yaw_vel: float = 0.0  # rad/s
+        self._profiled_roll_vel: float = 0.0  # rad/s
 
         self._integral_pitch = 0.0
         self._integral_yaw = 0.0
@@ -183,6 +186,19 @@ class CameraPositioner(Subsystem):
         self._integral_yaw = 0.0
         self._integral_roll = 0.0
 
+    def profile_finished(self) -> bool:
+        if (
+            self._desired_pitch is None
+            or self._desired_yaw is None
+            or self._desired_roll is None
+        ):
+            return False
+        return (
+            abs(self._profiled_pitch - self._desired_pitch) < 1e-6
+            and abs(self._profiled_yaw - self._desired_yaw) < 1e-6
+            and abs(self._profiled_roll - self._desired_roll) < 1e-6
+        )
+
     def at_goal(self) -> bool:
         if (
             self._ff_pitch_n11 is None
@@ -246,17 +262,26 @@ class CameraPositioner(Subsystem):
             yaw_goal = TrapezoidProfile.State(self._desired_yaw, 0.0)
             roll_goal = TrapezoidProfile.State(self._desired_roll, 0.0)
 
-            pitch_current = TrapezoidProfile.State(self._profiled_pitch, 0.0)
-            yaw_current = TrapezoidProfile.State(self._profiled_yaw, 0.0)
-            roll_current = TrapezoidProfile.State(self._profiled_roll, 0.0)
+            pitch_current = TrapezoidProfile.State(
+                self._profiled_pitch, self._profiled_pitch_vel
+            )
+            yaw_current = TrapezoidProfile.State(
+                self._profiled_yaw, self._profiled_yaw_vel
+            )
+            roll_current = TrapezoidProfile.State(
+                self._profiled_roll, self._profiled_roll_vel
+            )
 
             s_p = self._p_profile.calculate(dt, pitch_current, pitch_goal)
             s_y = self._y_profile.calculate(dt, yaw_current, yaw_goal)
             s_r = self._r_profile.calculate(dt, roll_current, roll_goal)
 
             self._profiled_pitch = s_p.position
+            self._profiled_pitch_vel = s_p.velocity
             self._profiled_yaw = s_y.position
+            self._profiled_yaw_vel = s_y.velocity
             self._profiled_roll = s_r.position
+            self._profiled_roll_vel = s_r.velocity
 
         if (
             self._feedback_enabled

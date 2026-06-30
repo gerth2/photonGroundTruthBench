@@ -12,9 +12,7 @@ def _predict(features: list[float], coeffs: list[float]) -> float:
     return sum(c * f for c, f in zip(coeffs, features))
 
 
-def _make_features(
-    r: float, p: float, y: float
-) -> list[float]:
+def _make_features(r: float, p: float, y: float) -> list[float]:
     return [1.0, r, p, y, r * r, p * p, y * y, r * p, r * y, p * y]
 
 

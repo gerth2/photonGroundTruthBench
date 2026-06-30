@@ -80,6 +80,14 @@ class CADConstants:
         Rotation3d(0.0, 0.0, math.pi),
     )
 
+    # Fixed camera translation in bench frame (the positioner only rotates
+    # the camera). Origin is halfway between targets and camera; targets
+    # at x ≈ 0.5 m, so camera is at x ≈ –0.5 m.
+    camera_pose_in_bench = Pose3d(
+        Translation3d(-0.5, 0.0, 0.0),
+        Rotation3d(0.0, 0.0, 0.0),
+    )
+
 
 class PIDConfig:
     """Closed-loop servo correction gains.
@@ -107,11 +115,11 @@ class ProfileConfig:
     to avoid jerking the 3D-printed mechanism.
     """
 
-    pitch_max_velocity_degps: float = 30.0
+    pitch_max_velocity_degps: float = 10.0
     pitch_max_acceleration_degps2: float = 60.0
-    yaw_max_velocity_degps: float = 30.0
+    yaw_max_velocity_degps: float = 10.0
     yaw_max_acceleration_degps2: float = 60.0
-    roll_max_velocity_degps: float = 30.0
+    roll_max_velocity_degps: float = 10.0
     roll_max_acceleration_degps2: float = 60.0
 
 
@@ -132,14 +140,25 @@ class ValidationConfig:
     # be filled at runtime by sweeping ±range in pitch & yaw.
     static_pose_deg: list[tuple[float, float, float]] = [
         (0.0, 0.0, 0.0),
-        (0.0, 10.0, 0.0),
-        (0.0, -10.0, 0.0),
-        (10.0, 0.0, 0.0),
-        (-10.0, 0.0, 0.0),
+        (0.0, 15.0, 0.0),
+        (5.0, -10.0, 0.0),
+        (10.0, 0.0, 3.0),
+        (-10.0, 0.0, 15.0),
         (5.0, 10.0, 0.0),
         (-5.0, -10.0, 0.0),
     ]
-    static_settle_cycles: int = 100       # 2 s
+    # Which AprilTag IDs are expected to be in view at each corresponding
+    # pose above.  Empty tuple means "no tags expected, PV may be absent".
+    static_expected_tags: list[tuple[int, ...]] = [
+        (6, 7),
+        (7,),
+        (6,),
+        (6, 7),
+        (6, 7),
+        (7,),
+        (6,),
+    ]
+    static_settle_cycles: int = 100  # 2 s
     static_samples_per_pose: int = 10
 
     # ── Dynamic sweep test ───────────────────────────────────────────

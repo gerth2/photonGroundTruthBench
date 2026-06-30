@@ -2,6 +2,20 @@
 
 FRC 2027 RobotPy project — a **camera ground-truth calibration bench** for comparing PhotonVision pose estimates against physically measured camera poses.
 
+## CAD model
+
+Bench coordinate system defined in `config/bench_config.py:CADConstants`:
+- **Origin**: halfway between targets and camera.
+- **+X**: from origin toward calibration targets.
+- **+Y**: right when facing targets.
+- **+Z**: up.
+
+Fixed poses from CAD (update when the mechanical model changes):
+- `camera_pose_in_bench` — camera translation (rotation comes from IMU).
+- `camera_to_imu` — Transform3d from camera reference to IMU chip.
+- `camera_focal_point_offset` — Translation3d from camera ref to lens.
+- `apriltag6_pose`, `apriltag7_pose`, `charuco_board_pose` — target poses in bench frame.
+
 ## Hardware — IO port map
 
 | Port | Peripheral | Wired as |
@@ -29,7 +43,7 @@ The robot uses the **OpModeRobot** framework — modes are registered with `@tel
 |---|---|---|
 | **UTILITY** | Calibrate Servos | Random-position sweep → IMU recording → CSV for offline calibration-map fitting |
 | **UTILITY** | Zero IMU | Re-run gyro-bias estimation in isolation |
-| **AUTONOMOUS** | Static Pose Test | Sequence of pre-planned poses; measure IMU vs PV error per pose |
+| **AUTONOMOUS** | Static Pose Test | Per-pose: trapezoid profile → IMU stability check → 1 s sampling window. Records IMU mean/std, PhotonVision RMS translation/rotation error per axis, expected tag IDs. |
 | **AUTONOMOUS** | Dynamic Sweep Test | Sinusoidal sweeps at increasing velocity; track error vs angular rate |
 | **TELEOPERATED** | Manual Operation | Joystick-driven servo positioner |
 
@@ -61,10 +75,11 @@ python -m pytest tests/
 ## Conventions
 
 - **`utilities/` never imports `wpilib`** — keeps domain logic pure and testable.
-- **`config/bench_config.py`** is the single source of truth for physical layout.
+- **`config/bench_config.py`** is the single source of truth for physical layout. Key classes: `CADConstants` (fixed tag/camera poses), `PositionerConfig` (servo ranges), `ValidationConfig` (pose lists, expected tags).
 - **Hardware** classes extend `core.Subsystem` and provide a `periodic()` method called from `robotPeriodic()`.
 - **OpModes** receive the `Robot` instance in their constructor and access hardware via typed attributes (`robot.sensors`, `robot.positioner`, `robot.vision`).
 - State machines live in `OpMode.periodic()` — no blocking loops.
+- NetworkTables keys are documented per-file in `hardware/` source.
 - Run `ruff check . && python -m mypy . --strict && python -m pytest tests/` before committing.
 
 ## Dependencies

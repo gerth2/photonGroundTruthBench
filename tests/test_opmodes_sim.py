@@ -69,3 +69,94 @@ def test_opmode_runs(robot: Robot, entry: tuple[type, str]) -> None:
     """Each opmode must survive 1 s of simulated run time."""
     cls, name = entry
     _run_opmode(robot, cls, name)
+
+
+# ── Profile advancement tests ──────────────────────────────────────
+
+
+def test_profile_does_not_snap_on_first_call(robot: Robot) -> None:
+    """set_goal_rad() + one periodic() must NOT snap profiled to goal."""
+    pos = robot.positioner
+    pos.set_goal_rad(pitch_rad=0.5, yaw_rad=0.0, roll_rad=0.0)
+    pos.periodic()
+    after = pos._profiled_pitch
+    assert after < 0.5 - 1e-6, f"Snapped to goal: {after}"
+
+
+def test_profile_advances_smoothly(robot: Robot) -> None:
+    """Repeated periodic() calls advance profiled pitch toward goal."""
+    pos = robot.positioner
+    pos.set_goal_rad(pitch_rad=0.5, yaw_rad=0.0, roll_rad=0.0)
+
+    samples = []
+    for _ in range(200):
+        pos.periodic()
+        samples.append(pos._profiled_pitch)
+
+    # Monotonically increasing
+    for i in range(1, len(samples)):
+        assert samples[i] >= samples[i - 1] - 1e-9, (
+            f"Not monotonic at step {i}: {samples[i - 1]} → {samples[i]}"
+        )
+
+    # Did not snap on first step
+    assert 0.0 < samples[0] < 0.01, f"First profiled value unexpected: {samples[0]}"
+
+    # After 4 s at 10 deg/s the profiled pitch should be at the goal.
+    assert abs(samples[-1] - 0.5) < 0.01, (
+        f"Did not converge to 0.5 after 4 s: {samples[-1]}"
+    )
+
+
+# ── profile_finished tests ─────────────────────────────────────────
+
+
+def _reset_positioner(pos: object) -> None:
+    """Wipe the positioner's goal and profiled state so next test starts clean."""
+    pos._desired_pitch = None  # type: ignore[attr-defined]
+    pos._desired_yaw = None  # type: ignore[attr-defined]
+    pos._desired_roll = None  # type: ignore[attr-defined]
+    pos._profiled_pitch = 0.0  # type: ignore[attr-defined]
+    pos._profiled_yaw = 0.0  # type: ignore[attr-defined]
+    pos._profiled_roll = 0.0  # type: ignore[attr-defined]
+    pos._profiled_pitch_vel = 0.0  # type: ignore[attr-defined]
+    pos._profiled_yaw_vel = 0.0  # type: ignore[attr-defined]
+    pos._profiled_roll_vel = 0.0  # type: ignore[attr-defined]
+
+
+def test_profile_finished_no_goal(robot: Robot) -> None:
+    """profile_finished returns False when no goal has been commanded."""
+    _reset_positioner(robot.positioner)
+    assert not robot.positioner.profile_finished()
+
+
+def test_profile_finished_at_origin(robot: Robot) -> None:
+    """profile_finished returns True when goal matches profiled (both 0)."""
+    pos = robot.positioner
+    _reset_positioner(pos)
+    pos.set_goal_rad(pitch_rad=0.0, yaw_rad=0.0, roll_rad=0.0)
+    assert pos.profile_finished()
+
+
+def test_profile_finished_not_yet_converged(robot: Robot) -> None:
+    """profile_finished returns False right after set_goal_rad with non-zero."""
+    pos = robot.positioner
+    _reset_positioner(pos)
+    pos.set_goal_rad(pitch_rad=0.5, yaw_rad=0.0, roll_rad=0.0)
+    assert not pos.profile_finished(), (
+        "Profile should not be finished immediately after setting a non-zero goal"
+    )
+
+
+def test_profile_finished_after_convergence(robot: Robot) -> None:
+    """profile_finished returns True once the profile reaches the goal."""
+    pos = robot.positioner
+    _reset_positioner(pos)
+    pos.set_goal_rad(pitch_rad=0.5, yaw_rad=0.0, roll_rad=0.0)
+
+    for _ in range(300):
+        pos.periodic()
+        if pos.profile_finished():
+            return
+
+    assert False, "Profile did not converge to 0.5 rad after 300 cycles (6 s)"
