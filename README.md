@@ -47,6 +47,72 @@ The robot uses the **OpModeRobot** framework — modes are registered with `@tel
 | **AUTONOMOUS** | Dynamic Sweep Test | Sinusoidal sweeps at increasing velocity; track error vs angular rate |
 | **TELEOPERATED** | Manual Operation | Joystick-driven servo positioner |
 
+## Running tests
+
+All test modes are deployed as AUTONOMOUS opmodes. Select via Driver Station:
+
+1. Deploy to roboRIO: `robotpy deploy`
+2. In Driver Station, switch to **AUTONOMOUS** mode.
+3. Select the desired test from the autonomous routine dropdown.
+4. Enable the robot. The test runs immediately.
+
+**To stop early**, disable the robot. `end()` flushes any accumulated results to CSV.
+
+### Static Pose Test — phase machine
+
+| Phase | What happens |
+|---|---|
+| **ZEROING** | IMU gyro bias estimation (~100 cycles). |
+| **MOVING** | Commands the positioner to the next pose via `set_goal_rad()`. |
+| **PROFILE_WAIT** | Waits for the trapezoid profile output to equal the goal (no timeout). |
+| **STABILIZING** | Buffers 1 s of IMU Euler angles. Once peak-to-peak range < 0.5° per axis for a full 1 s, proceeds. Timeout after 5 s (logs a warning, proceeds anyway). |
+| **SAMPLING** | 1 s window (50 cycles): collects IMU Euler + PhotonVision `estimatedPose` every cycle. |
+| **RECORD** | Computes IMU mean/std, per-sample GT⁻¹ × PV transform, RMS per axis. Advances to the next pose. |
+| **DONE** | Flushes all results to CSV. |
+
+**NT telemetry** (live during run):
+
+| Key | Type | Meaning |
+|---|---|---|
+| `static_pose/running` | bool | 1 while test is executing |
+| `static_pose/pose_index` | number | Current pose (0-based) |
+| `static_pose/total_poses` | number | Total poses in the sweep |
+| `static_pose/completed` | bool | 1 after all poses finish |
+| `static_pose/csv_path` | string | Path of the output CSV |
+| `static_pose/warning` | string | Non-empty if stability timeout occurred |
+
+### Dynamic Sweep Test
+
+*(Phase machine and NT keys — TBD — follow the same pattern.)*
+
+## Results
+
+Each test writes one CSV to the roboRIO. Retrieve via SCP after the run:
+
+```bash
+# Static Pose Test results
+scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/static_pose_results.csv .
+
+# Calibration sweep data (used by scripts/download_calibration.py)
+scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/servo_calibration_*.csv .
+```
+
+### Static Pose Test CSV columns
+
+| Column | Description |
+|---|---|
+| `pose_idx` | 0-based pose index |
+| `expected_tags` | AprilTag IDs expected in view (e.g. `6,7`) |
+| `cmd_roll/pitch/yaw` | Commanded camera orientation (rad) |
+| `imu_count` | IMU samples in the 1 s window (always 50) |
+| `pv_count` | PhotonVision frames with a valid pose estimate |
+| `imu_mean_roll/pitch/yaw` | Mean IMU Euler angles over the window (rad) |
+| `imu_std_roll/pitch/yaw` | Standard deviation of IMU Euler angles (rad) |
+| `rms_dx/dy/dz` | RMS translation error (m) — GT⁻¹ × PV, in camera frame |
+| `rms_droll/dpitch/dyaw` | RMS rotation error (rad) |
+
+Rows with `pv_count = 0` and zeros in the RMS columns indicate no PV data was available at that pose.
+
 ## Project layout
 
 | Path | Role |

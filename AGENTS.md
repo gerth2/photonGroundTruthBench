@@ -59,7 +59,7 @@ The `Robot` instance is passed to each OpMode constructor (via `addOpMode`'s fac
 ## Key commands
 
 | Action | Command |
-|---|---|
+|---|---|---|
 | Sync deps | `robotpy sync` |
 | Deploy to roboRIO | `robotpy deploy` |
 | Run sim (desktop) | `robotpy sim` |
@@ -67,6 +67,7 @@ The `Robot` instance is passed to each OpMode constructor (via `addOpMode`'s fac
 | Format | `ruff format .` |
 | Lint | `ruff check .` |
 | Typecheck | `python -m mypy . --strict` |
+| Retrieve test results | `scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/*.csv .` |
 
 Run `lint -> typecheck -> test` before committing. All three are expected to pass.
 
