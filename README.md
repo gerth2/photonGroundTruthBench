@@ -86,15 +86,21 @@ All test modes are deployed as AUTONOMOUS opmodes. Select via Driver Station:
 
 *(Phase machine and NT keys — TBD — follow the same pattern.)*
 
-## Results
+## Test results (AUTONOMOUS modes)
 
-Each test writes one CSV to the roboRIO. Retrieve via SCP after the run:
+CSV output from `Static Pose Test` and `Dynamic Sweep Test` contains the
+PhotoniVision-vs-ground-truth comparison data. Retrieve via SCP after the run:
 
 ```bash
-# Static Pose Test results
 scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/static_pose_results.csv .
+```
 
-# Calibration sweep data (used by scripts/download_calibration.py)
+## Calibration data (UTILITY modes)
+
+CSV output from `Calibrate Servos` is the raw servo-position / IMU-reading pairs
+used by `scripts/download_calibration.py` to fit the servo-to-angle map:
+
+```bash
 scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/servo_calibration_*.csv .
 ```
 

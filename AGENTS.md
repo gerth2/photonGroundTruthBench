@@ -4,7 +4,7 @@ FRC 2027 RobotPy project — camera ground-truth calibration bench.
 
 ## Project identity
 
-- **Year:** 2027 (NOT 2026). Use `robotpy` metapackage version `2027.*` and `photonlibpy` pinned to `2027.*`.
+- **Year:** 2027 (NOT 2026 or prior. 2027 has major breaking changes, read docs with caution.). Use `robotpy` metapackage version `2027.*` and `photonlibpy` pinned to `2027.*`.
 - **RobotPy commands:** `robotpy sync` (install deps), `robotpy deploy` (to roboRIO), `robotpy --help`.
 - **Purpose:** Drive a physical test bench that positions a camera at known poses relative to Apriltag/calibration targets, then compares PhotonVision pose estimates against assumed-correct ground-truth sensor readings.
 
@@ -67,7 +67,8 @@ The `Robot` instance is passed to each OpMode constructor (via `addOpMode`'s fac
 | Format | `ruff format .` |
 | Lint | `ruff check .` |
 | Typecheck | `python -m mypy . --strict` |
-| Retrieve test results | `scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/*.csv .` |
+| Retrieve test results (AUTONOMOUS) | `scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/static_pose_results.csv .` |
+| Retrieve calibration data (UTILITY) | `scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/servo_calibration_*.csv .` |
 
 Run `lint -> typecheck -> test` before committing. All three are expected to pass.
 
