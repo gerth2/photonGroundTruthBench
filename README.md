@@ -20,10 +20,10 @@ Fixed poses from CAD (update when the mechanical model changes):
 
 | Port | Peripheral | Wired as |
 |---|---|---|
-| **PWM 0** | MG90S servo — pitch | roboRIO PWM header |
-| **PWM 1** | MG90S servo — yaw | roboRIO PWM header |
-| **PWM 2** | MG90S servo — roll | roboRIO PWM header |
-| **I²C port 1** (0x68) | MPU6050 accel/gyro | MXP I²C bus |
+| **PWM 0** | MG90S servo — pitch | SystemCore PWM header |
+| **PWM 1** | MG90S servo — yaw | SystemCore PWM header |
+| **PWM 2** | MG90S servo — roll | SystemCore PWM header |
+| **I²C port 1** (0x68) | MPU6050 accel/gyro | SystemCore I²C bus |
 | **USB** (via switch) | Camera | PhotonVision / NetworkTables |
 
 Servo pulse range: 1000–2000 µs via `wpilib.PWM.setPulseTime()`.
@@ -51,7 +51,7 @@ The robot uses the **OpModeRobot** framework — modes are registered with `@tel
 
 All test modes are deployed as AUTONOMOUS opmodes. Select via Driver Station:
 
-1. Deploy to roboRIO: `robotpy deploy`
+1. Deploy to SystemCore: `robotpy deploy`
 2. In Driver Station, switch to **AUTONOMOUS** mode.
 3. Select the desired test from the autonomous routine dropdown.
 4. Enable the robot. The test runs immediately.
@@ -92,7 +92,7 @@ CSV output from `Static Pose Test` and `Dynamic Sweep Test` contains the
 PhotoniVision-vs-ground-truth comparison data. Retrieve via SCP after the run:
 
 ```bash
-scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/static_pose_results.csv .
+scp lvuser@systemcore-6708.local:/home/lvuser/test_results/static_pose_results.csv .
 ```
 
 ## Calibration data (UTILITY modes)
@@ -101,7 +101,7 @@ CSV output from `Calibrate Servos` is the raw servo-position / IMU-reading pairs
 used by `scripts/download_calibration.py` to fit the servo-to-angle map:
 
 ```bash
-scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/servo_calibration_*.csv .
+scp lvuser@systemcore-6708.local:/home/lvuser/calibration_data/servo_calib_*.csv .
 ```
 
 ### Static Pose Test CSV columns

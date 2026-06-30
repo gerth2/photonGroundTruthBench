@@ -195,7 +195,7 @@ def test_static_pose_storage_uses_cwd_in_sim(robot: Robot) -> None:
     mode._storage_path = "/some/unwritable/path"
     mode._flush_csv()
 
-    expected = os.path.join(os.getcwd(), "calibration_data", "static_pose_results.csv")
+    expected = os.path.join(os.getcwd(), "test_results", "static_pose_results.csv")
     assert os.path.isfile(expected), f"CSV not written to cwd-relative path: {expected}"
 
     os.remove(expected)

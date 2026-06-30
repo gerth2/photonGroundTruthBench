@@ -37,7 +37,7 @@ class PositionerConfig:
 class IMUConfig:
     """I²C bus layout and MPU6050 initial settings."""
 
-    i2c_port: int = 1  # MXP port on roboRIO
+    i2c_port: int = 1  # SystemCore I²C port
     i2c_address: int = 0x68  # MPU6050 default (AD0 low)
 
     gyro_full_scale_dps: int = 250
@@ -160,6 +160,10 @@ class ValidationConfig:
     ]
     static_settle_cycles: int = 100  # 2 s
     static_samples_per_pose: int = 10
+
+    # ── Output storage ────────────────────────────────────────────────
+    # Test results (AUTONOMOUS modes — static pose, dynamic sweep).
+    test_results_path: str = "/home/lvuser/test_results"
 
     # ── Dynamic sweep test ───────────────────────────────────────────
     # For each axis run a sinusoid at each listed peak velocity (deg/s).

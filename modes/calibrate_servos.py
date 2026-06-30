@@ -137,10 +137,10 @@ class CalibrateServosMode(PeriodicOpMode):
         )
         os.makedirs(storage, exist_ok=True)
         ts = _time.strftime("%Y%m%d_%H%M%S")
-        roborio_serial = wpilib.RobotController.getSerialNumber()
+        systemcore_serial = wpilib.RobotController.getSerialNumber()
         path = os.path.join(storage, f"servo_calib_{ts}.csv")
         with open(path, "w", newline="") as f:
-            f.write(f"# roboRIO serial: {roborio_serial}\n")
+            f.write(f"# SystemCore serial: {systemcore_serial}\n")
             f.write(f"# generated: {_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(
                 "servo_roll,servo_pitch,servo_yaw,"

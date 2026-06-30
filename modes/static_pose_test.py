@@ -81,7 +81,7 @@ class StaticPoseTest(PeriodicOpMode):
         self._robot = robot
 
         vc = BenchConfig.validation
-        self._storage_path = BenchConfig.calibration.storage_path
+        self._storage_path = BenchConfig.validation.test_results_path
         self._camera_translation = BenchConfig.cad.camera_pose_in_bench.translation()
 
         # Build pose list from config.
@@ -319,7 +319,7 @@ class StaticPoseTest(PeriodicOpMode):
 
     def _flush_csv(self) -> None:
         storage = (
-            os.path.join(os.getcwd(), "calibration_data")
+            os.path.join(os.getcwd(), "test_results")
             if wpilib.RobotBase.isSimulation()
             else self._storage_path
         )

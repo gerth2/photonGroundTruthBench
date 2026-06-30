@@ -5,7 +5,7 @@ FRC 2027 RobotPy project — camera ground-truth calibration bench.
 ## Project identity
 
 - **Year:** 2027 (NOT 2026 or prior. 2027 has major breaking changes, read docs with caution.). Use `robotpy` metapackage version `2027.*` and `photonlibpy` pinned to `2027.*`.
-- **RobotPy commands:** `robotpy sync` (install deps), `robotpy deploy` (to roboRIO), `robotpy --help`.
+- **RobotPy commands:** `robotpy sync` (install deps), `robotpy deploy` (to SystemCore), `robotpy --help`.
 - **Purpose:** Drive a physical test bench that positions a camera at known poses relative to Apriltag/calibration targets, then compares PhotonVision pose estimates against assumed-correct ground-truth sensor readings.
 
 ## Structure
@@ -61,14 +61,14 @@ The `Robot` instance is passed to each OpMode constructor (via `addOpMode`'s fac
 | Action | Command |
 |---|---|---|
 | Sync deps | `robotpy sync` |
-| Deploy to roboRIO | `robotpy deploy` |
+| Deploy to SystemCore | `robotpy deploy` |
 | Run sim (desktop) | `robotpy sim` |
 | Run tests | `python -m pytest tests/` |
 | Format | `ruff format .` |
 | Lint | `ruff check .` |
 | Typecheck | `python -m mypy . --strict` |
-| Retrieve test results (AUTONOMOUS) | `scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/static_pose_results.csv .` |
-| Retrieve calibration data (UTILITY) | `scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/servo_calibration_*.csv .` |
+| Retrieve test results (AUTONOMOUS) | `scp lvuser@systemcore-6708.local:/home/lvuser/test_results/static_pose_results.csv .` |
+| Retrieve calibration data (UTILITY) | `scp lvuser@systemcore-6708.local:/home/lvuser/calibration_data/servo_calib_*.csv .` |
 
 Run `lint -> typecheck -> test` before committing. All three are expected to pass.
 
@@ -89,7 +89,7 @@ Run `lint -> typecheck -> test` before committing. All three are expected to pas
 
 ## Hardware — servo positioner
 
-- Three MG90S servos (roll, pitch, yaw) on roboRIO PWM channels 0-2.
+- Three MG90S servos (roll, pitch, yaw) on SystemCore PWM channels 0-2.
 - Servo output via `wpilib.Servo.set()` with range 0-1. Config provides center/min/max in **-1..1 space** (see `PositionerConfig` in `config/bench_config.py`). The `CameraPositioner` hardware class maps commanded radians to this range.
 - **Open-loop only** — 3D-printed parts have slop; do not trust commanded position as ground truth.
 - Closed-loop correction uses a **PI controller per axis** in `CameraPositioner.periodic()`. The inverse calibration map (from `CalibrationMap`) provides feedforward; the PI controller corrects the residual. I term typically dominates.
@@ -107,8 +107,8 @@ Run `lint -> typecheck -> test` before committing. All three are expected to pas
 
 ## Servo calibration pipeline
 
-1. **On roboRIO** — `CalibrateServosMode` opmode zeros the IMU, then commands random servo triplets one per settling window, records IMU rotation via `average_rotations()` (200 ms sample window), writes CSV to `/home/lvuser/calibration_data/`. All state in `periodic()` — no blocking.
-2. **Off-bench** — `scripts/download_calibration.py` SSH/SCPs CSV from roboRIO, fits degree-2 polynomial (forward: servo→angle, **inverse**: angle→servo), plots residual distributions, and writes `config/servo_calibration_map.py` on user approval.
+1. **On SystemCore** — `CalibrateServosMode` opmode zeros the IMU, then commands random servo triplets one per settling window, records IMU rotation via `average_rotations()` (200 ms sample window), writes CSV to `/home/lvuser/calibration_data/`. All state in `periodic()` — no blocking.
+2. **Off-bench** — `scripts/download_calibration.py` SSH/SCPs CSV from SystemCore, fits degree-2 polynomial (forward: servo→angle, **inverse**: angle→servo), plots residual distributions, and writes `config/servo_calibration_map.py` on user approval.
 3. **At runtime** — `CameraPositioner.set_goal_rad()` uses `CalibrationMap.inverse()` for feedforward, then PI in `periodic()` converges to the commanded angle.
 
 Key files:

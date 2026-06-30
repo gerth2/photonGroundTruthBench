@@ -62,7 +62,7 @@ class DynamicSweepTest(PeriodicOpMode):
             math.radians(v) for v in vc.sweep_velocity_steps_degps
         ]
         self._cycles_per_step = vc.sweep_cycles_per_step
-        self._storage_path = BenchConfig.calibration.storage_path
+        self._storage_path = BenchConfig.validation.test_results_path
 
         self._phase: Phase = Phase.ZEROING
         self._axis: str = ""

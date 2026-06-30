@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Download a servo-calibration CSV from the roboRIO, fit a degree-2
+Download a servo-calibration CSV from the SystemCore, fit a degree-2
 polynomial map (forward and inverse), show error visualisation, and
 write the result to config/servo_calibration_map.py.
 
 Usage:
-    python scripts/download_calibration.py [roborio-host]
+    python scripts/download_calibration.py [systemcore-host]
 """
 
 import argparse
@@ -141,7 +141,7 @@ def generate_map_code(
     n_points: int,
     avg_gain: float,
     source_file: str = "<unknown>",
-    roborio_serial: str = "<unknown>",
+    systemcore_serial: str = "<unknown>",
 ) -> str:
     now = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M")
     host = __import__("socket").gethostname()
@@ -156,7 +156,7 @@ def generate_map_code(
 
     Last updated:  {now}
     Source CSV:    {source_file}
-    RoboRIO serial:{roborio_serial}
+    SystemCore serial:{systemcore_serial}
     Generated on:  {host}
     """
 
@@ -216,13 +216,13 @@ def main() -> None:
     parser.add_argument(
         "host",
         nargs="?",
-        default="roborio-6708-frc.local",
-        help="roboRIO hostname or IP",
+        default="systemcore-6708.local",
+        help="SystemCore hostname or IP",
     )
     parser.add_argument(
         "--remote-dir",
         default="/home/lvuser/calibration_data",
-        help="remote directory with CSV files",
+        help="remote directory with calibration CSV files",
     )
     args = parser.parse_args()
 
@@ -293,7 +293,7 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     out_path = repo_root / "config" / "servo_calibration_map.py"
     source_name = os.path.basename(remote_path)
-    roborio_serial = meta.get("roboRIO serial", "<unknown>")
+    systemcore_serial = meta.get("SystemCore serial", "<unknown>")
     code = generate_map_code(
         coeffs_r,
         coeffs_p,
@@ -307,7 +307,7 @@ def main() -> None:
         n_points,
         avg_gain,
         source_file=source_name,
-        roborio_serial=roborio_serial,
+        systemcore_serial=systemcore_serial,
     )
     with open(out_path, "w") as f:
         f.write(code)
