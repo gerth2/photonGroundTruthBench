@@ -107,8 +107,9 @@ class GroundTruthSensors(Subsystem):
         #   imu/gyro_*        — rad/s
         #   imu/filtered_rpy  — rad  (roll, pitch, yaw)
         #   imu/gyro_bias     — rad/s
-        #   imu/is_zeroed     — boolean
-        #   imu/zero_count     — int
+        #   imu/is_zeroed     — boolean  (True after zeroing finishes)
+        #   imu/is_zeroing    — boolean  (True while zeroing is in progress)
+        #   imu/zero_count    — int
 
         sd.putNumber("imu/accel_x", self._last_ax)
         sd.putNumber("imu/accel_y", self._last_ay)
@@ -124,4 +125,5 @@ class GroundTruthSensors(Subsystem):
         sd.putNumberArray("imu/gyro_bias", [bx, by, bz])
 
         sd.putBoolean("imu/is_zeroed", self._zeroed)
+        sd.putBoolean("imu/is_zeroing", self._zeroing_active)
         sd.putNumber("imu/zero_count", self._zero_count)
