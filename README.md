@@ -56,7 +56,7 @@ All test modes are deployed as AUTONOMOUS opmodes. Select via Driver Station:
 3. Select the desired test from the autonomous routine dropdown.
 4. Enable the robot. The test runs immediately.
 
-**To stop early**, disable the robot. `end()` flushes any accumulated results to CSV.
+**To stop early**, disable the robot. Results are discarded.
 
 ### Static Pose Test — phase machine
 
@@ -68,7 +68,7 @@ All test modes are deployed as AUTONOMOUS opmodes. Select via Driver Station:
 | **STABILIZING** | Buffers 1 s of IMU Euler angles. Once peak-to-peak range < 0.5° per axis for a full 1 s, proceeds. Timeout after 5 s (logs a warning, proceeds anyway). |
 | **SAMPLING** | 1 s window (50 cycles): collects IMU Euler + PhotonVision `estimatedPose` every cycle. |
 | **RECORD** | Computes IMU mean/std, per-sample GT⁻¹ × PV transform, RMS per axis. Advances to the next pose. |
-| **DONE** | Flushes all results to CSV. |
+| **DONE** | Flushes CSV, returns positioner to first pose, logs completion timestamp. |
 
 **NT telemetry** (live during run):
 
@@ -78,6 +78,7 @@ All test modes are deployed as AUTONOMOUS opmodes. Select via Driver Station:
 | `static_pose/pose_index` | number | Current pose (0-based) |
 | `static_pose/total_poses` | number | Total poses in the sweep |
 | `static_pose/completed` | bool | 1 after all poses finish |
+| `static_pose/completed_at` | string | ISO timestamp of completion (`end()` clears on disable) |
 | `static_pose/csv_path` | string | Path of the output CSV |
 | `static_pose/warning` | string | Non-empty if stability timeout occurred |
 
@@ -99,17 +100,19 @@ scp admin@roborio-XXXX-frc.local:/home/lvuser/calibration_data/servo_calibration
 
 ### Static Pose Test CSV columns
 
+Column names include units in parentheses. All angles in radians, distances in metres.
+
 | Column | Description |
 |---|---|
 | `pose_idx` | 0-based pose index |
 | `expected_tags` | AprilTag IDs expected in view (e.g. `6,7`) |
-| `cmd_roll/pitch/yaw` | Commanded camera orientation (rad) |
+| `cmd_roll (rad)` / `cmd_pitch (rad)` / `cmd_yaw (rad)` | Commanded camera orientation |
 | `imu_count` | IMU samples in the 1 s window (always 50) |
 | `pv_count` | PhotonVision frames with a valid pose estimate |
-| `imu_mean_roll/pitch/yaw` | Mean IMU Euler angles over the window (rad) |
-| `imu_std_roll/pitch/yaw` | Standard deviation of IMU Euler angles (rad) |
-| `rms_dx/dy/dz` | RMS translation error (m) — GT⁻¹ × PV, in camera frame |
-| `rms_droll/dpitch/dyaw` | RMS rotation error (rad) |
+| `imu_mean_roll (rad)` / `imu_mean_pitch (rad)` / `imu_mean_yaw (rad)` | Mean IMU Euler angles over the window |
+| `imu_std_roll (rad)` / `imu_std_pitch (rad)` / `imu_std_yaw (rad)` | Standard deviation of IMU Euler angles |
+| `rms_dx (m)` / `rms_dy (m)` / `rms_dz (m)` | RMS translation error — GT⁻¹ × PV, in camera frame |
+| `rms_droll (rad)` / `rms_dpitch (rad)` / `rms_dyaw (rad)` | RMS rotation error |
 
 Rows with `pv_count = 0` and zeros in the RMS columns indicate no PV data was available at that pose.
 

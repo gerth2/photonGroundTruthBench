@@ -23,6 +23,7 @@ import csv
 import math
 import os
 import statistics
+import time
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -103,6 +104,7 @@ class StaticPoseTest(PeriodicOpMode):
         self._pose_index = 0
         self._cycle_count = 0
         self._done = False
+        self._completed_at: str | None = None
 
         # Stability buffer (deque of (r, p, y) tuples).
         self._stability_buf: deque[tuple[float, float, float]] = deque(
@@ -123,6 +125,7 @@ class StaticPoseTest(PeriodicOpMode):
         self._pose_index = 0
         self._cycle_count = 0
         self._done = False
+        self._completed_at = None
         self._stability_buf.clear()
         self._window_imu.clear()
         self._window_pv.clear()
@@ -134,8 +137,13 @@ class StaticPoseTest(PeriodicOpMode):
             self._zeroing()
             return
         if self._pose_index >= len(self._poses):
+            self._flush_csv()
+            # Return positioner to the first pose.
+            p0, y0, r0 = self._poses[0]
+            self._robot.positioner.set_goal_rad(p0, y0, r0)
             self._phase = Phase.DONE
             self._done = True
+            self._completed_at = time.strftime("%Y-%m-%d %H:%M:%S")
             return
         if self._phase is Phase.MOVING:
             self._moving()
@@ -151,8 +159,6 @@ class StaticPoseTest(PeriodicOpMode):
         self._publish_nt()
 
     def end(self) -> None:
-        if self._results:
-            self._flush_csv()
         SmartDashboard.putBoolean("static_pose/running", False)
         SmartDashboard.putBoolean("static_pose/completed", self._done)
 
@@ -306,6 +312,8 @@ class StaticPoseTest(PeriodicOpMode):
         sd.putNumber("static_pose/pose_index", self._pose_index)
         sd.putNumber("static_pose/total_poses", len(self._poses))
         sd.putBoolean("static_pose/completed", self._done)
+        if self._completed_at is not None:
+            sd.putString("static_pose/completed_at", self._completed_at)
 
     # ── CSV I/O ────────────────────────────────────────────────────────
 
@@ -323,29 +331,31 @@ class StaticPoseTest(PeriodicOpMode):
             w.writerow(
                 [
                     "pose_idx",
-                    "cmd_roll",
-                    "cmd_pitch",
-                    "cmd_yaw",
+                    "expected_tags",
+                    "cmd_roll (rad)",
+                    "cmd_pitch (rad)",
+                    "cmd_yaw (rad)",
                     "imu_count",
                     "pv_count",
-                    "imu_mean_roll",
-                    "imu_mean_pitch",
-                    "imu_mean_yaw",
-                    "imu_std_roll",
-                    "imu_std_pitch",
-                    "imu_std_yaw",
-                    "rms_dx",
-                    "rms_dy",
-                    "rms_dz",
-                    "rms_droll",
-                    "rms_dpitch",
-                    "rms_dyaw",
+                    "imu_mean_roll (rad)",
+                    "imu_mean_pitch (rad)",
+                    "imu_mean_yaw (rad)",
+                    "imu_std_roll (rad)",
+                    "imu_std_pitch (rad)",
+                    "imu_std_yaw (rad)",
+                    "rms_dx (m)",
+                    "rms_dy (m)",
+                    "rms_dz (m)",
+                    "rms_droll (rad)",
+                    "rms_dpitch (rad)",
+                    "rms_dyaw (rad)",
                 ]
             )
             for r in self._results:
                 w.writerow(
                     [
                         r.pose_idx,
+                        ",".join(str(t) for t in r.expected_tags),
                         f"{r.cmd_r:.6f}",
                         f"{r.cmd_p:.6f}",
                         f"{r.cmd_y:.6f}",
