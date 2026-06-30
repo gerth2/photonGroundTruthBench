@@ -4,42 +4,42 @@
         {
             "label": "sim",
             "type": "shell",
-            "command": "python robot.py sim",
+            "command": "uv run python robot.py sim",
             "detail": "Run the robot simulator on desktop",
             "group": "test"
         },
         {
             "label": "deploy",
             "type": "shell",
-            "command": "robotpy deploy",
+            "command": "uv run robotpy deploy",
             "detail": "Deploy code to roboRIO",
             "group": "none"
         },
         {
             "label": "test",
             "type": "shell",
-            "command": "python -m pytest tests/ -v",
+            "command": "uv run python -m pytest tests/ -v",
             "detail": "Run pytest suite",
             "group": "test"
         },
         {
             "label": "lint",
             "type": "shell",
-            "command": "ruff check .",
+            "command": "uv run ruff check .",
             "detail": "Lint with ruff",
             "group": "build"
         },
         {
             "label": "typecheck",
             "type": "shell",
-            "command": "python -m mypy . --strict",
+            "command": "uv run python -m mypy . --strict",
             "detail": "Type-check with mypy --strict",
             "group": "build"
         },
         {
             "label": "check-all",
             "type": "shell",
-            "command": "ruff check . && python -m mypy . --strict && python -m pytest tests/ -q",
+            "command": "uv run ruff check . && uv run python -m mypy . --strict && uv run python -m pytest tests/ -q",
             "detail": "Run lint, typecheck, and tests in sequence",
             "group": "test",
             "dependsOn": ["lint", "typecheck", "test"]
