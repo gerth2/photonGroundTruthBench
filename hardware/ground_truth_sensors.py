@@ -102,6 +102,14 @@ class GroundTruthSensors(Subsystem):
 
         sd = wpilib.SmartDashboard
 
+        # ── NT key map (units) ─────────────────────────────────────
+        #   imu/accel_*       — m/s²
+        #   imu/gyro_*        — rad/s
+        #   imu/filtered_rpy  — rad  (roll, pitch, yaw)
+        #   imu/gyro_bias     — rad/s
+        #   imu/is_zeroed     — boolean
+        #   imu/zero_count     — int
+
         sd.putNumber("imu/accel_x", self._last_ax)
         sd.putNumber("imu/accel_y", self._last_ay)
         sd.putNumber("imu/accel_z", self._last_az)

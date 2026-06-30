@@ -20,6 +20,8 @@ Usage in a mode file::
         def periodic(self): ...
 """
 
+import math
+
 from collections.abc import Callable
 
 import wpilib
@@ -110,6 +112,7 @@ class Robot(OpModeRobot):
         pc = cfg.positioner
         ic = cfg.imu
         pid = cfg.pid
+        prc = cfg.profile
 
         imu = MPU6050(
             port=ic.i2c_port,
@@ -158,6 +161,12 @@ class Robot(OpModeRobot):
             roll_ki=pid.roll_ki,
             integral_limit=pid.integral_limit,
             position_tolerance_rad=pid.position_tolerance_rad,
+            pitch_max_velocity=math.radians(prc.pitch_max_velocity_degps),
+            pitch_max_acceleration=math.radians(prc.pitch_max_acceleration_degps2),
+            yaw_max_velocity=math.radians(prc.yaw_max_velocity_degps),
+            yaw_max_acceleration=math.radians(prc.yaw_max_acceleration_degps2),
+            roll_max_velocity=math.radians(prc.roll_max_velocity_degps),
+            roll_max_acceleration=math.radians(prc.roll_max_acceleration_degps2),
         )
 
         field_layout = AprilTagFieldLayout()

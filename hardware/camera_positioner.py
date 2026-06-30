@@ -105,11 +105,9 @@ class CameraPositioner(Subsystem):
         self._desired_yaw: float | None = None
         self._desired_roll: float | None = None
 
-        self._profile_t = 0.0
-
-        self._profiled_pitch: float = 0.0
-        self._profiled_yaw: float = 0.0
-        self._profiled_roll: float = 0.0
+        self._profiled_pitch: float = 0.0  # rad — trapezoid profile setpoint
+        self._profiled_yaw: float = 0.0    # rad
+        self._profiled_roll: float = 0.0   # rad
 
         self._integral_pitch = 0.0
         self._integral_yaw = 0.0
@@ -136,11 +134,8 @@ class CameraPositioner(Subsystem):
         self._desired_yaw = yaw_rad
         self._desired_roll = roll_rad
 
-        self._profile_t = 0.0
-        self._profiled_pitch = pitch_rad
-        self._profiled_yaw = yaw_rad
-        self._profiled_roll = roll_rad
-
+        # _profiled_* are NOT reset to the goal — the trapezoid profile
+        # will smoothly advance from wherever the setpoint currently is.
         self._integral_pitch = 0.0
         self._integral_yaw = 0.0
         self._integral_roll = 0.0
@@ -245,8 +240,7 @@ class CameraPositioner(Subsystem):
             and self._desired_yaw is not None
             and self._desired_roll is not None
         ):
-            dt = 0.02
-            self._profile_t += dt
+            dt = 0.02  # loop period, rad — profile advances by dt each cycle
 
             pitch_goal = TrapezoidProfile.State(self._desired_pitch, 0.0)
             yaw_goal = TrapezoidProfile.State(self._desired_yaw, 0.0)
@@ -256,9 +250,9 @@ class CameraPositioner(Subsystem):
             yaw_current = TrapezoidProfile.State(self._profiled_yaw, 0.0)
             roll_current = TrapezoidProfile.State(self._profiled_roll, 0.0)
 
-            s_p = self._p_profile.calculate(self._profile_t, pitch_current, pitch_goal)
-            s_y = self._y_profile.calculate(self._profile_t, yaw_current, yaw_goal)
-            s_r = self._r_profile.calculate(self._profile_t, roll_current, roll_goal)
+            s_p = self._p_profile.calculate(dt, pitch_current, pitch_goal)
+            s_y = self._y_profile.calculate(dt, yaw_current, yaw_goal)
+            s_r = self._r_profile.calculate(dt, roll_current, roll_goal)
 
             self._profiled_pitch = s_p.position
             self._profiled_yaw = s_y.position
@@ -297,6 +291,12 @@ class CameraPositioner(Subsystem):
         self._roll_servo.setPulseTime(CameraPositioner._n11_to_pulse(roll_cmd))
 
         self._publish_telemetry(pitch_cmd, yaw_cmd, roll_cmd, err_p, err_y, err_r)
+
+    # ── NetworkTables key map (units) ──────────────────────────────
+    #   positioner/ff_n11_*    — n11 (-1..1), raw servo feedforward
+    #   positioner/goal_rpy    — rad  (roll, pitch, yaw), commanded pose
+    #   positioner/profiled_rpy— rad  (roll, pitch, yaw), trapezoid-smoothed
+    #   positioner/error_rpy   — rad  (roll, pitch, yaw), PI error = profiled - actual
 
     def _publish_telemetry(
         self,
