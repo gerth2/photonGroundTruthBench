@@ -100,6 +100,12 @@ class Robot(OpModeRobot):
 
     def __init__(self) -> None:
         super().__init__()  # type: ignore[no-untyped-call]
+
+        # Register opmodes FIRST so they appear even if hardware init fails.
+        for cls_, mode, name, group, desc in _registry:
+            self.addOpMode(cls_, mode, name, group, desc)
+        self.publishOpModes()
+
         cfg = BenchConfig
         pc = cfg.positioner
         ic = cfg.imu
@@ -163,11 +169,6 @@ class Robot(OpModeRobot):
             ),
             camera_to_robot=Transform3d(),
         )
-
-        # Register all decorated OpModes (from the late-imported mode files).
-        for cls_, mode, name, group, desc in _registry:
-            self.addOpMode(cls_, mode, name, group, desc)
-        self.publishOpModes()
 
         self._publish_static_targets(cfg)
 
