@@ -309,7 +309,11 @@ class StaticPoseTest(PeriodicOpMode):
     # ── CSV I/O ────────────────────────────────────────────────────────
 
     def _flush_csv(self) -> None:
-        os.makedirs(self._storage_path, exist_ok=True)
+        try:
+            os.makedirs(self._storage_path, exist_ok=True)
+        except OSError:
+            self._storage_path = os.path.join(os.getcwd(), "calibration_data")
+            os.makedirs(self._storage_path, exist_ok=True)
         path = os.path.join(self._storage_path, "static_pose_results.csv")
 
         with open(path, "w", newline="") as f:

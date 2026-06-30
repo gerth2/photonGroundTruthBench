@@ -5,6 +5,7 @@ Uses raw WPILib sim APIs (not pyfrc) so it works with robotpy 2027.
 
 from __future__ import annotations
 
+import os
 import sys
 
 import pytest
@@ -20,6 +21,7 @@ import modes.static_pose_test  # noqa: F401
 import modes.zero_imu  # noqa: F401
 
 from robot import Robot, _registry  # noqa: E402
+from modes.static_pose_test import StaticPoseTest, WindowResult  # noqa: E402
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
@@ -160,3 +162,41 @@ def test_profile_finished_after_convergence(robot: Robot) -> None:
             return
 
     assert False, "Profile did not converge to 0.5 rad after 300 cycles (6 s)"
+
+
+# ── Storage-path fallback tests ────────────────────────────────────
+
+
+def test_static_pose_storage_fallback_on_perm_error(robot: Robot) -> None:
+    """_flush_csv must fall back to cwd-relative path when configured path is unwritable."""
+    mode = StaticPoseTest(robot)
+    mode._results = [
+        WindowResult(
+            pose_idx=0,
+            expected_tags=(6, 7),
+            cmd_r=0.0,
+            cmd_p=0.0,
+            cmd_y=0.0,
+            imu_count=50,
+            pv_count=10,
+            imu_mean=(0.0, 0.0, 0.0),
+            imu_std=(0.0, 0.0, 0.0),
+            rms_errors={
+                "dx": 0.001,
+                "dy": 0.002,
+                "dz": 0.003,
+                "droll": 0.01,
+                "dpitch": 0.02,
+                "dyaw": 0.03,
+            },
+        )
+    ]
+    mode._storage_path = "/nonexistent_dir_xyz/calibration_data"
+    mode._flush_csv()
+
+    expected = os.path.join(os.getcwd(), "calibration_data", "static_pose_results.csv")
+    assert os.path.isfile(expected), f"CSV not written to fallback path: {expected}"
+
+    # Cleanup.
+    os.remove(expected)
+    os.rmdir(os.path.dirname(expected))

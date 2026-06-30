@@ -130,7 +130,11 @@ class CalibrateServosMode(PeriodicOpMode):
         self._robot.positioner.enable_feedback()
 
     def _write_csv(self) -> None:
-        os.makedirs(self._storage_path, exist_ok=True)
+        try:
+            os.makedirs(self._storage_path, exist_ok=True)
+        except OSError:
+            self._storage_path = os.path.join(os.getcwd(), "calibration_data")
+            os.makedirs(self._storage_path, exist_ok=True)
         ts = _time.strftime("%Y%m%d_%H%M%S")
         roborio_serial = wpilib.RobotController.getSerialNumber()
         path = os.path.join(self._storage_path, f"servo_calib_{ts}.csv")
