@@ -2,21 +2,32 @@
 
 FRC 2027 RobotPy project — a **camera ground-truth calibration bench** for comparing PhotonVision pose estimates against physically measured camera poses.
 
-## CAD model
+1. Commands the bench to a target camera pose via three servos.
+2. Reads ground-truth orientation from the onboard MPU6050 (Mahony complementary filter).
+3. Captures a PhotonVision pose estimate at the same moment.
+4. Records both for offline comparison.
 
-Bench coordinate system defined in `config/bench_config.py:CADConstants`:
-- **Origin**: halfway between targets and camera.
-- **+X**: from origin toward calibration targets.
-- **+Y**: right when facing targets.
-- **+Z**: up.
+## Getting started
 
-Fixed poses from CAD (update when the mechanical model changes):
-- `camera_pose_in_bench` — camera translation (rotation comes from IMU).
-- `camera_to_imu` — Transform3d from camera reference to IMU chip.
-- `camera_focal_point_offset` — Translation3d from camera ref to lens.
-- `apriltag6_pose`, `apriltag7_pose`, `charuco_board_pose` — target poses in bench frame.
+```bash
+uv venv
+uv pip install --prerelease=allow \
+  robotpy==2027.0.0a6.post1 \
+  photonlibpy==2027.0.0a2 \
+  matplotlib numpy pytest ruff mypy
+source .venv/bin/activate
 
-## Hardware — IO port map
+# Deploy to SystemCore
+uv run robotpy deploy
+
+# Desktop simulation
+uv run robotpy sim
+
+# Offline tests
+uv run python -m pytest tests/
+```
+
+## Hardware IO port map
 
 | Port | Peripheral | Wired as |
 |---|---|---|
@@ -26,141 +37,105 @@ Fixed poses from CAD (update when the mechanical model changes):
 | **I²C port 1** (0x68) | MPU6050 accel/gyro | SystemCore I²C bus |
 | **USB** (via switch) | Camera | PhotonVision / NetworkTables |
 
-Servo pulse range: 1000–2000 µs via `wpilib.PWM.setPulseTime()`.
+Servo pulse range: 1000–2000 µs (linear N11 mapping).
 
-## What it does
+## N11 coordinate frame
 
-1. Commands the bench to a target camera pose via three servos.
-2. Reads ground-truth orientation from the onboard MPU6050 (Mahony complementary filter).
-3. Captures a PhotonVision pose estimate at the same moment.
-4. Records both for offline comparison.
+All servos use a normalised **N11** space (`-1` to `1`):
 
-## Modes (Driver- Station selectable)
+| N11  | PWM pulse |
+|------|-----------|
+| `-1` | 1000 µs   |
+| ` 0` | 1500 µs   |
+| ` 1` | 2000 µs   |
 
-The robot uses the **OpModeRobot** framework — modes are registered with `@teleop`, `@autonomous`, and `@utility` decorators and appear as selectable options in the Driver Station:
+The `[-1, 1]` range represents the servo's full physical travel. Per-axis N11 **soft limits** (`PositionerConfig` in `config/bench_config.py`) define the mechanism-safe operating window and are enforced at every command entry point.
+
+RPY (radians) → N11 conversion uses `CalibrationMap.inverse()`, a degree-2 polynomial fit from the calibration pipeline.
+
+## Modes (Driver-Station selectable)
 
 | DS Slot | Mode | Description |
 |---|---|---|
-| **UTILITY** | Calibrate Servos | Random-position sweep → IMU recording → CSV for offline calibration-map fitting |
+| **UTILITY** | Calibrate Servos | Random-position sweep → linear slew → IMU recording → CSV for offline map fitting |
 | **UTILITY** | Zero IMU | Re-run gyro-bias estimation in isolation |
-| **AUTONOMOUS** | Static Pose Test | Per-pose: trapezoid profile → IMU stability check → 1 s sampling window. Records IMU mean/std, PhotonVision RMS translation/rotation error per axis, expected tag IDs. |
-| **AUTONOMOUS** | Dynamic Sweep Test | Sinusoidal sweeps at increasing velocity; track error vs angular rate |
+| **AUTONOMOUS** | Static Pose Test | Per-pose: profile to target → IMU stability check → 1 s sampling window. Records IMU, PV error, expected tag IDs |
+| **AUTONOMOUS** | Dynamic Sweep Test | Sinusoidal sweeps at increasing velocity |
 | **TELEOPERATED** | Manual Operation | Joystick-driven servo positioner |
+| **TELEOPERATED** | Home Servos | Linear slew all axes back to centre |
 
-## Running tests
+### Static Pose Test phases
 
-All test modes are deployed as AUTONOMOUS opmodes. Select via Driver Station:
-
-1. Deploy to SystemCore: `robotpy deploy`
-2. In Driver Station, switch to **AUTONOMOUS** mode.
-3. Select the desired test from the autonomous routine dropdown.
-4. Enable the robot. The test runs immediately.
-
-**To stop early**, disable the robot. Results are discarded.
-
-### Static Pose Test — phase machine
-
-| Phase | What happens |
+| Phase | Description |
 |---|---|
-| **ZEROING** | IMU gyro bias estimation (~100 cycles). |
-| **MOVING** | Commands the positioner to the next pose via `set_goal_rad()`. |
-| **PROFILE_WAIT** | Waits for the trapezoid profile output to equal the goal (no timeout). |
-| **STABILIZING** | Buffers 1 s of IMU Euler angles. Once peak-to-peak range < 0.5° per axis for a full 1 s, proceeds. Timeout after 5 s (logs a warning, proceeds anyway). |
-| **SAMPLING** | 1 s window (50 cycles): collects IMU Euler + PhotonVision `estimatedPose` every cycle. |
-| **RECORD** | Computes IMU mean/std, per-sample GT⁻¹ × PV transform, RMS per axis. Advances to the next pose. |
-| **DONE** | Flushes CSV, returns positioner to first pose, logs completion timestamp. |
+| **ZEROING** | IMU gyro bias estimation (~100 cycles) |
+| **MOVING** | `set_goal_rad()` to the next pose |
+| **PROFILE_WAIT** | Wait for trapezoid profile to reach goal |
+| **STABILIZING** | 1 s IMU buffer; proceed when peak-to-peak < 0.5° or 5 s timeout |
+| **SAMPLING** | 1 s window: collect IMU + PhotonVision every cycle |
+| **RECORD** | Compute RMS per axis, advance to next pose |
+| **DONE** | Flush CSV, return to first pose |
 
-**NT telemetry** (live during run):
+### Calibrate Servos phases
 
-| Key | Type | Meaning |
-|---|---|---|
-| `static_pose/running` | bool | 1 while test is executing |
-| `static_pose/pose_index` | number | Current pose (0-based) |
-| `static_pose/total_poses` | number | Total poses in the sweep |
-| `static_pose/completed` | bool | 1 after all poses finish |
-| `static_pose/completed_at` | string | ISO timestamp of completion (`end()` clears on disable) |
-| `static_pose/csv_path` | string | Path of the output CSV |
-| `static_pose/warning` | string | Non-empty if stability timeout occurred |
+| Phase | Description |
+|---|---|
+| **HOME** | Slew to centre (0,0,0) N11, settle 3 s |
+| **ZEROING** | Gyro bias estimation at repeatable mechanical zero |
+| **MOVING** | Select next random servo triplet |
+| **SLEWING** | Linear n11 ramp over 1 s |
+| **SETTLING** | Wait 3 s for mechanical damping |
+| **SAMPLING** | Accumulate 50 IMU readings (1 s) |
+| **RECORD** | Average buffer, write to CSV |
+| **DONE** | Flush CSV to disk |
 
-### Dynamic Sweep Test
+## Retrieving results
 
-*(Phase machine and NT keys — TBD — follow the same pattern.)*
-
-## Test results (AUTONOMOUS modes)
-
-CSV output from `Static Pose Test` and `Dynamic Sweep Test` contains the
-PhotoniVision-vs-ground-truth comparison data. Retrieve via SCP after the run:
-
+**AUTONOMOUS test results:**
 ```bash
 scp lvuser@systemcore-6708.local:/home/lvuser/test_results/static_pose_results.csv .
 ```
 
-## Calibration data (UTILITY modes)
-
-CSV output from `Calibrate Servos` is the raw servo-position / IMU-reading pairs
-used by `scripts/download_calibration.py` to fit the servo-to-angle map:
-
+**Calibration data (UTILITY):**
 ```bash
 scp lvuser@systemcore-6708.local:/home/lvuser/calibration_data/servo_calib_*.csv .
 ```
 
-### Static Pose Test CSV columns
+## CSV column reference
 
-Column names include units in parentheses. All angles in radians, distances in metres.
+### Static Pose Test
 
 | Column | Description |
 |---|---|
 | `pose_idx` | 0-based pose index |
-| `expected_tags` | AprilTag IDs expected in view (e.g. `6,7`) |
+| `expected_tags` | AprilTag IDs expected in view |
 | `cmd_roll (rad)` / `cmd_pitch (rad)` / `cmd_yaw (rad)` | Commanded camera orientation |
-| `imu_count` | IMU samples in the 1 s window (always 50) |
-| `pv_count` | PhotonVision frames with a valid pose estimate |
-| `imu_mean_roll (rad)` / `imu_mean_pitch (rad)` / `imu_mean_yaw (rad)` | Mean IMU Euler angles over the window |
-| `imu_std_roll (rad)` / `imu_std_pitch (rad)` / `imu_std_yaw (rad)` | Standard deviation of IMU Euler angles |
-| `rms_dx (m)` / `rms_dy (m)` / `rms_dz (m)` | RMS translation error — GT⁻¹ × PV, in camera frame |
+| `imu_count` / `pv_count` | Samples in the 1 s window |
+| `imu_mean_roll (rad)` / … | Mean IMU Euler angles |
+| `imu_std_roll (rad)` / … | Standard deviation of IMU Euler angles |
+| `rms_dx (m)` / `rms_dy (m)` / `rms_dz (m)` | RMS translation error (GT⁻¹ × PV, camera frame) |
 | `rms_droll (rad)` / `rms_dpitch (rad)` / `rms_dyaw (rad)` | RMS rotation error |
 
-Rows with `pv_count = 0` and zeros in the RMS columns indicate no PV data was available at that pose.
+Rows with `pv_count = 0` indicate no PhotonVision data at that pose.
 
 ## Project layout
 
 | Path | Role |
 |---|---|
-| `robot.py` | `OpModeRobot` entry point + `@teleop`/`@autonomous`/`@utility` decorators |
+| `robot.py` | `OpModeRobot` entry point + mode decorators |
 | `modes/` | OpMode subclasses (one file per mode) |
 | `hardware/` | Hardware abstractions (PWM, I²C, PhotonVision) |
-| `core/` | Base classes (lightweight `Subsystem` ABC) |
+| `core/` | Base `Subsystem` ABC |
 | `config/` | Physical constants, calibration map |
 | `utilities/` | Pure-math domain (no wpilib imports) |
-| `scripts/` | Laptop-only offline tools (calibration fitting) |
+| `scripts/` | Laptop-only offline tools |
 | `tests/` | pytest unit tests |
-
-## Getting started
-
-```bash
-robotpy sync
-
-# Simulation
-robotpy sim
-
-# Tests
-python -m pytest tests/
-```
-
-## Conventions
-
-- **`utilities/` never imports `wpilib`** — keeps domain logic pure and testable.
-- **`config/bench_config.py`** is the single source of truth for physical layout. Key classes: `CADConstants` (fixed tag/camera poses), `PositionerConfig` (servo ranges), `ValidationConfig` (pose lists, expected tags).
-- **Hardware** classes extend `core.Subsystem` and provide a `periodic()` method called from `robotPeriodic()`.
-- **OpModes** receive the `Robot` instance in their constructor and access hardware via typed attributes (`robot.sensors`, `robot.positioner`, `robot.vision`).
-- State machines live in `OpMode.periodic()` — no blocking loops.
-- NetworkTables keys are documented per-file in `hardware/` source.
-- Run `ruff check . && python -m mypy . --strict && python -m pytest tests/` before committing.
 
 ## Dependencies
 
 - `robotpy>=2027` (metapackage — includes `OpModeRobot`)
 - `photonlibpy==2027.0.0a2`
 - `robotpy-sim` (desktop simulation)
+- `matplotlib`, `numpy` (offline calibration fitting)
 
 See `pyproject.toml` for exact version pins.
