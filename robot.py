@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+"""Entry-point module for the ground-truth calibration bench robot application.
+
+Owns hardware subsystem instantiation and OpMode registration via the
+OpModeRobot framework.  Delegates per-mode logic to subclasses in ``modes/``.
+"""
+
 import math
 
 from collections.abc import Callable
@@ -24,6 +30,22 @@ def teleop(
     group: str = "",
     description: str = "",
 ) -> Callable[[type], type]:
+    """Register a class as a TELEOPERATED OpMode.
+
+    Parameters
+    ----------
+    name : str
+        Display name (defaults to the class name).
+    group : str
+        Group for DS organisation.
+    description : str
+        Human-readable description.
+
+    Returns
+    -------
+    Callable[[type], type]
+        The decorator that appends to the global registry.
+    """
     def deco(cls: type) -> type:
         _registry.append(
             (cls, RobotMode.TELEOPERATED, name or cls.__name__, group, description)
@@ -38,6 +60,22 @@ def autonomous(
     group: str = "",
     description: str = "",
 ) -> Callable[[type], type]:
+    """Register a class as an AUTONOMOUS OpMode.
+
+    Parameters
+    ----------
+    name : str
+        Display name (defaults to the class name).
+    group : str
+        Group for DS organisation.
+    description : str
+        Human-readable description.
+
+    Returns
+    -------
+    Callable[[type], type]
+        The decorator that appends to the global registry.
+    """
     def deco(cls: type) -> type:
         _registry.append(
             (cls, RobotMode.AUTONOMOUS, name or cls.__name__, group, description)
@@ -52,6 +90,22 @@ def utility(
     group: str = "",
     description: str = "",
 ) -> Callable[[type], type]:
+    """Register a class as a UTILITY OpMode.
+
+    Parameters
+    ----------
+    name : str
+        Display name (defaults to the class name).
+    group : str
+        Group for DS organisation.
+    description : str
+        Human-readable description.
+
+    Returns
+    -------
+    Callable[[type], type]
+        The decorator that appends to the global registry.
+    """
     def deco(cls: type) -> type:
         _registry.append(
             (cls, RobotMode.UTILITY, name or cls.__name__, group, description)
@@ -62,7 +116,15 @@ def utility(
 
 
 class Robot(OpModeRobot):
+    """Top-level robot class for the ground-truth calibration bench.
+
+    Creates and wires all hardware subsystems (sensors, positioner, vision),
+    registers OpModes from the global decorator registry, and publishes static
+    calibration-target poses to SmartDashboard.
+    """
+
     def __init__(self) -> None:
+        """Initialise subsystems and register all decorated OpModes."""
         super().__init__()  # type: ignore[no-untyped-call]
 
         for cls_, mode, name, group, desc in _registry:
@@ -135,15 +197,24 @@ class Robot(OpModeRobot):
         self._publish_static_targets(cfg)
 
     def robotPeriodic(self) -> None:
+        """Advance all hardware subsystems by one 20 ms cycle."""
         self.sensors.periodic()
         self.positioner.periodic()
         self.vision.periodic()
 
     @staticmethod
     def _publish_static_targets(cfg: type[BenchConfig]) -> None:
+        """Write known calibration-target poses to SmartDashboard.
+
+        Parameters
+        ----------
+        cfg : type[BenchConfig]
+            Configuration class containing CAD pose constants.
+        """
         sd = wpilib.SmartDashboard
 
         def _pub(label: str, pose: Pose3d) -> None:
+            """Write a single target's translation and rotation to SmartDashboard."""
             t = pose.translation()
             r = pose.rotation()
             sd.putNumberArray(
@@ -151,8 +222,8 @@ class Robot(OpModeRobot):
                 [t.X(), t.Y(), t.Z(), r.X(), r.Y(), r.Z()],
             )
 
-        _pub("apriltag_6", cfg.cad.apriltag6_pose)
-        _pub("apriltag_7", cfg.cad.apriltag7_pose)
+        _pub("left_tag", cfg.cad.left_tag_pose)
+        _pub("right_tag", cfg.cad.right_tag_pose)
         _pub("charuco_board", cfg.cad.charuco_board_pose)
 
 

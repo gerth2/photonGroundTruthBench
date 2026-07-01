@@ -1,24 +1,5 @@
-"""Smooth sinusoidal sweeps at increasing angular velocities.
-
-For each axis (pitch, yaw, roll) and each velocity step the robot
-drives a sinusoid while logging PV position estimates continuously.
-The resulting data lets us quantify how pose-estimation error grows
-with angular velocity.
-
-Trajectory:
-  θ(t) = A · sin(2π · f · t)
-  f = v_peak / (2π · A)    so peak angular velocity = A · 2πf = v_peak
-
-Phase machine per axis:
-  ZEROING → SWEEPING_AXIS (each vel step) → (next axis) → DONE
-
-TODOs (flesh out systematically):
-  - Implement setpoint generation (sinusoid) per axis.
-  - Log IMU attitude + PV estimate + commanded angle at each cycle.
-  - Compare measured vs. commanded to extract phase lag and amplitude
-    attenuation (classic frequency-response analysis).
-  - Write CSV with columns: timestamp, axis, commanded, imu, pv, vel_step.
-"""
+"""Smooth sinusoidal sweeps at increasing angular velocities to quantify
+how pose-estimation error grows with angular velocity."""
 
 from __future__ import annotations
 
@@ -37,6 +18,8 @@ from robot import autonomous  # noqa: E402
 
 
 class Phase(Enum):
+    """Named phase values for the dynamic-sweep state machine."""
+
     ZEROING = auto()
     SWEEP_PITCH = auto()
     SWEEP_YAW = auto()
@@ -46,13 +29,12 @@ class Phase(Enum):
 
 @autonomous(name="Dynamic Sweep Test", group="Validation")
 class DynamicSweepTest(PeriodicOpMode):
-    """Frequency-response analysis of PV at increasing angular rates.
-
-    Phase machine:
-      ZEROING → SWEEP_PITCH → SWEEP_YAW → SWEEP_ROLL → DONE
-    """
+    """PeriodicOpMode that drives sinusoidal positioner trajectories on
+    each axis at stepped velocity levels while logging PhotonVision and
+    IMU data for frequency-response analysis."""
 
     def __init__(self, robot: Robot) -> None:
+        """Read sweep parameters from BenchConfig and initialise phase state."""
         super().__init__()
         self._robot = robot
 
@@ -72,6 +54,7 @@ class DynamicSweepTest(PeriodicOpMode):
         self._completed = False
 
     def start(self) -> None:
+        """Reset phase state and begin IMU zeroing."""
         self._phase = Phase.ZEROING
         self._axis = ""
         self._vel_idx = 0
@@ -80,6 +63,7 @@ class DynamicSweepTest(PeriodicOpMode):
         self._robot.sensors.start_zeroing()
 
     def periodic(self) -> None:
+        """Advance the sweep state machine each cycle."""
         if self._phase is Phase.ZEROING:
             if self._robot.sensors.is_zeroed():
                 self._phase = Phase.SWEEP_PITCH
@@ -105,6 +89,7 @@ class DynamicSweepTest(PeriodicOpMode):
             self._completed = True
 
     def end(self) -> None:
+        """Flush logged data to CSV if the sweep completed."""
         if self._completed:
             # TODO: flush logged data to CSV
             pass

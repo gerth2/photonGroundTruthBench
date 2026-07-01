@@ -1,3 +1,10 @@
+"""Three-axis servo positioner that orients the camera in pitch, yaw, and roll.
+
+Supports two smooth command modes (trapezoidal profile with PI feedback, and
+linear N11 slew) and a raw bypass for homing.  All state machines advance in
+``periodic()`` — no blocking calls.
+"""
+
 import wpilib
 from wpilib import Timer
 from wpimath import TrapezoidProfile
@@ -8,6 +15,15 @@ from hardware.ground_truth_sensors import GroundTruthSensors
 
 
 class CameraPositioner(Subsystem):
+    """Drives three MG90S servos to position the camera at commanded angles.
+
+    Lifecycle: construct with config values, then call ``set_goal_rad()``,
+    ``set_target_n11()``, or ``set_raw_n11()`` to command motion.  The
+    ``periodic()`` method advances the active state machine (profile or slew)
+    and writes PWM pulses each cycle.  Callers check ``at_goal()`` or
+    ``n11_slew_finished()`` to detect completion.
+    """
+
     def __init__(
         self,
         pitch_channel: int,
@@ -39,6 +55,38 @@ class CameraPositioner(Subsystem):
         roll_max_velocity: float = 0.5,
         roll_max_acceleration: float = 1.0,
     ) -> None:
+        """Initialise PWM outputs, calibration map reference, and internal state.
+
+        Args:
+            pitch_channel: PWM channel for the pitch servo.
+            yaw_channel: PWM channel for the yaw servo.
+            roll_channel: PWM channel for the roll servo.
+            pitch_center: N11 centre value for pitch.
+            pitch_min: N11 soft lower limit for pitch.
+            pitch_max: N11 soft upper limit for pitch.
+            yaw_center: N11 centre value for yaw.
+            yaw_min: N11 soft lower limit for yaw.
+            yaw_max: N11 soft upper limit for yaw.
+            roll_center: N11 centre value for roll.
+            roll_min: N11 soft lower limit for roll.
+            roll_max: N11 soft upper limit for roll.
+            sensors: Ground-truth sensor instance used for feedback.
+            calibration_map: CalibrationMap class for RPY-to-N11 conversion.
+            pitch_kp: Proportional gain for pitch feedback.
+            pitch_ki: Integral gain for pitch feedback.
+            yaw_kp: Proportional gain for yaw feedback.
+            yaw_ki: Integral gain for yaw feedback.
+            roll_kp: Proportional gain for roll feedback.
+            roll_ki: Integral gain for roll feedback.
+            integral_limit: Maximum integral accumulator value per axis.
+            position_tolerance_rad: Tolerance for ``at_goal()`` convergence check.
+            pitch_max_velocity: Max trapezoidal profile velocity for pitch (rad/s).
+            pitch_max_acceleration: Max trapezoidal profile acceleration for pitch (rad/s²).
+            yaw_max_velocity: Max trapezoidal profile velocity for yaw (rad/s).
+            yaw_max_acceleration: Max trapezoidal profile acceleration for yaw (rad/s²).
+            roll_max_velocity: Max trapezoidal profile velocity for roll (rad/s).
+            roll_max_acceleration: Max trapezoidal profile acceleration for roll (rad/s²).
+        """
         super().__init__()
 
         self._pitch_servo = wpilib.PWM(pitch_channel)
@@ -107,9 +155,20 @@ class CameraPositioner(Subsystem):
 
     @staticmethod
     def _clamp_n11(v: float, lo: float, hi: float) -> float:
+        """Clamp a value to the N11 soft limit range [lo, hi]."""
         return max(lo, min(hi, v))
 
     def set_goal_rad(self, pitch_rad: float, yaw_rad: float, roll_rad: float) -> None:
+        """Command a target orientation via trapezoidal profile with PI feedback.
+
+        Uses the inverse calibration map to compute an N11 feedforward value,
+        then converges via feedback in subsequent ``periodic()`` cycles.
+
+        Args:
+            pitch_rad: Target pitch in radians.
+            yaw_rad: Target yaw in radians.
+            roll_rad: Target roll in radians.
+        """
         self._desired_pitch = pitch_rad
         self._desired_yaw = yaw_rad
         self._desired_roll = roll_rad
@@ -132,6 +191,15 @@ class CameraPositioner(Subsystem):
         )
 
     def set_raw_n11(self, pitch: float, yaw: float, roll: float) -> None:
+        """Immediately apply raw N11 values to the servos (bypasses profile and slew).
+
+        Any active profile or slew is cancelled.
+
+        Args:
+            pitch: Raw N11 value for pitch.
+            yaw: Raw N11 value for yaw.
+            roll: Raw N11 value for roll.
+        """
         self._ff_pitch_n11 = CameraPositioner._clamp_n11(
             float(pitch), self._pitch_min, self._pitch_max
         )
@@ -152,6 +220,16 @@ class CameraPositioner(Subsystem):
     def set_target_n11(
         self, pitch: float, yaw: float, roll: float, duration_s: float = 1.0
     ) -> None:
+        """Command a target in N11 space via a linear slew from the current position.
+
+        Any active profile or feedback goal is cancelled.
+
+        Args:
+            pitch: Target N11 value for pitch.
+            yaw: Target N11 value for yaw.
+            roll: Target N11 value for roll.
+            duration_s: Duration of the linear slew in seconds.
+        """
         self._desired_pitch = None
         self._desired_yaw = None
         self._desired_roll = None
@@ -171,9 +249,11 @@ class CameraPositioner(Subsystem):
         self._n11_slewing = True
 
     def n11_slew_finished(self) -> bool:
+        """Return True if the active N11 slew has completed."""
         return not self._n11_slewing
 
     def profile_finished(self) -> bool:
+        """Return True if the trapezoidal profile has reached its target."""
         if (
             self._desired_pitch is None
             or self._desired_yaw is None
@@ -187,6 +267,12 @@ class CameraPositioner(Subsystem):
         )
 
     def at_goal(self) -> bool:
+        """Return True if the servos have converged to the commanded orientation.
+
+        When feedback is enabled and the IMU is zeroed, compares IMU readings
+        against the desired angles within ``position_tolerance_rad``.  Otherwise
+        returns True immediately after the profile/slew completes.
+        """
         if (
             self._ff_pitch_n11 is None
             or self._ff_yaw_n11 is None
@@ -211,9 +297,11 @@ class CameraPositioner(Subsystem):
         return True
 
     def enable_feedback(self) -> None:
+        """Re-enable PI feedback correction in ``periodic()``."""
         self._feedback_enabled = True
 
     def get_current_n11(self) -> tuple[float, float, float]:
+        """Return the last-commanded N11 values (pitch, yaw, roll)."""
         return (
             self._ff_pitch_n11 if self._ff_pitch_n11 is not None else 0.0,
             self._ff_yaw_n11 if self._ff_yaw_n11 is not None else 0.0,
@@ -221,6 +309,7 @@ class CameraPositioner(Subsystem):
         )
 
     def disable_feedback(self) -> None:
+        """Disable PI feedback and reset the integral accumulators."""
         self._feedback_enabled = False
         self._integral_pitch = 0.0
         self._integral_yaw = 0.0
@@ -228,11 +317,19 @@ class CameraPositioner(Subsystem):
 
     @staticmethod
     def _n11_to_pulse(v: float) -> int:
+        """Convert an N11 value (-1..1) to a PWM pulse width in microseconds."""
         clamped = max(-1.0, min(1.0, v))
         zero_to_one = (clamped + 1.0) / 2.0
         return int(1000 + zero_to_one * 1000)
 
     def periodic(self) -> None:
+        """Advance the active state machine and write PWM outputs.
+
+        Handles three mutually exclusive modes:
+        1. N11 linear slew (``set_target_n11``).
+        2. Trapezoidal profile with optional PI feedback (``set_goal_rad``).
+        3. Raw N11 hold (``set_raw_n11``).
+        """
         pitch_cmd = self._ff_pitch_n11
         yaw_cmd = self._ff_yaw_n11
         roll_cmd = self._ff_roll_n11
@@ -349,6 +446,7 @@ class CameraPositioner(Subsystem):
         err_y: float,
         err_r: float,
     ) -> None:
+        """Write positioner state to SmartDashboard for debugging."""
         sd = wpilib.SmartDashboard
 
         sd.putNumber(

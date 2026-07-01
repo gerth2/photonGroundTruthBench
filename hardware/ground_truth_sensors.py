@@ -1,3 +1,5 @@
+"""MPU6050-based IMU ground-truth sensor with Mahony filter and on-line zeroing."""
+
 import wpilib
 from wpilib import Timer
 from wpimath import Rotation3d
@@ -8,6 +10,14 @@ from hardware.mpu6050 import MPU6050
 
 
 class GroundTruthSensors(Subsystem):
+    """Reads the MPU6050 each cycle and fuses gyro + accelerometer via Mahony filter.
+
+    Lifecycle: call ``start_zeroing()`` to begin gyro bias estimation over
+    ``zeroing_samples`` cycles.  Once ``is_zeroed()`` returns True the filter
+    produces usable orientation estimates.  ``periodic()`` must be called each
+    robot loop to keep the filter updated.
+    """
+
     def __init__(
         self,
         imu: MPU6050,
@@ -15,6 +25,14 @@ class GroundTruthSensors(Subsystem):
         filter_ki: float = 0.0,
         zeroing_samples: int = 100,
     ) -> None:
+        """Initialise the IMU driver, Mahony filter, and zeroing accumulators.
+
+        Args:
+            imu: Initialised MPU6050 hardware driver instance.
+            filter_kp: Mahony filter proportional gain.
+            filter_ki: Mahony filter integral gain.
+            zeroing_samples: Number of gyro samples averaged during zeroing.
+        """
         super().__init__()
 
         self._imu = imu
@@ -39,6 +57,12 @@ class GroundTruthSensors(Subsystem):
         self._last_az = 0.0
 
     def start_zeroing(self) -> None:
+        """Begin the gyro bias zeroing sequence.
+
+        Resets accumulators and sets the internal zeroing state machine
+        active.  ``periodic()`` will collect samples until ``zeroing_samples``
+        is reached.
+        """
         self._zeroing_active = True
         self._zeroed = False
         self._zeroing_idx = 0
@@ -47,24 +71,34 @@ class GroundTruthSensors(Subsystem):
         self._zeroing_sum_z = 0.0
 
     def is_zeroed(self) -> bool:
+        """Return True if gyro bias estimation has completed at least once."""
         return self._zeroed
 
     def is_zeroing(self) -> bool:
+        """Return True if the zeroing state machine is currently collecting samples."""
         return self._zeroing_active
 
     def get_zero_count(self) -> int:
+        """Return the number of times zeroing has completed."""
         return self._zero_count
 
     def get_rotation(self) -> Rotation3d:
+        """Return the latest fused orientation from the Mahony filter."""
         return self._filter.get_rotation()
 
     def get_euler_angles(self) -> tuple[float, float, float]:
+        """Return the latest Euler angles (roll, pitch, yaw) in radians."""
         return self._filter.get_euler_angles()
 
     def get_gyro_bias(self) -> tuple[float, float, float]:
+        """Return the current gyro bias estimate (x, y, z) in rad/s."""
         return self._filter.get_gyro_bias()
 
     def periodic(self) -> None:
+        """Read sensor data, update the Mahony filter, and manage zeroing.
+
+        Also pushes IMU telemetry to SmartDashboard each cycle.
+        """
         now = Timer.getTimestamp()
         dt = now - self._last_timestamp
         self._last_timestamp = now

@@ -1,3 +1,5 @@
+"""Unit tests for ground-truth calculation, measurement data types, and comparison logic."""
+
 import math
 
 from utilities.comparison import compute_error
@@ -7,6 +9,7 @@ from wpimath import Pose3d, Translation3d, Rotation3d
 
 
 def test_ground_truth_calculator_default() -> None:
+    """Verify the calculator returns the origin when given zero offset and angles."""
     calc = GroundTruthCalculator((0.0, 0.0, 0.0))
     pose = calc.compute_camera_pose(0.0, 0.0, 0.0)
     t = pose.translation()
@@ -16,6 +19,7 @@ def test_ground_truth_calculator_default() -> None:
 
 
 def test_ground_truth_calculator_offset() -> None:
+    """Verify the calculator applies a translation offset correctly."""
     calc = GroundTruthCalculator((0.1, 0.2, 0.3))
     pose = calc.compute_camera_pose(0.0, 0.0, 0.0)
     t = pose.translation()
@@ -25,6 +29,7 @@ def test_ground_truth_calculator_offset() -> None:
 
 
 def test_compare_no_vision() -> None:
+    """Verify that compute_error with a None vision estimate produces a record with no error."""
     gt = GroundTruthSample(timestamp_s=1.0, camera_pose=Pose3d(), sensor_readings={})
     record = compute_error(gt, None)
     assert record.error is None
@@ -32,6 +37,7 @@ def test_compare_no_vision() -> None:
 
 
 def test_compare_with_vision() -> None:
+    """Verify that compute_error with matching poses produces a record with a valid error."""
     gt = GroundTruthSample(timestamp_s=1.0, camera_pose=Pose3d(), sensor_readings={})
     ve = PoseMeasurement(timestamp_s=1.0, pose=Pose3d())
     record = compute_error(gt, ve)

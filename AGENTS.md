@@ -58,30 +58,46 @@ The `Robot` instance is passed to each OpMode constructor (via `addOpMode`'s fac
 
 ## Commenting
 
-All comments in this file (AGENTS.md) define the project's conventions.
-Code-level comments exist for only one reason: to explain *why* a
-non-obvious implementation choice was made in a specific location.
+Every `.py` file and every function (public **and** private) must carry a
+docstring.  The purpose is to make the code readable without having to read
+its body — a compact summary that a teammate can scan in the call-stack
+peek of their editor.
 
-**Forbidden in .py files:**
-- Comments that describe what the code is *not* doing ("no blocking loops",
-  "no goniometric fallback", "rather than loop-counter assumptions", etc.)
-- Comments that state WPILib/RobotPy conventions ("state machine in
-  periodic()", "runs at loop rate", "polls at loop rate")
-- Comments that repeat what the code already says ("# Get pitch" above
-  `pitch = get_pitch()`; "# Remove bias" above `gx -= bias`)
-- Section-marker comments (`# ── Config ──`, `# ── Tests ──`)
-- Module/class/function docstrings that describe *what* the code does
-  when the function name + body already make it clear
-- Agent workflow instructions or TODOs about future features
-- Comments referencing AGENTS.md or explaining project-wide conventions
-- "Optional" disclaimers for parameters that always have some value
+### Docstring rules
 
-**Allowed in .py files (rare):**
-- `# noqa` / `# type: ignore` / `# nosec` directives
-- A one-line comment explaining *why* an unusual edge-case exists
-  (e.g. `# +1 because the profile returns for next step, not current`)
-- Public API docstrings only when the method signature is ambiguous
-  and the docstring clarifies semantics not visible in the name or body
+1. **Every module** — one paragraph: what the module owns / is responsible
+   for.  No list of classes it contains (importers can see that).
+2. **Every class** — one paragraph: what the class encapsulates, what its
+   lifecycle looks like, any invariants the caller must uphold.
+3. **Every function / method** (including `__init__`, private helpers, and
+   `@property` bodies) — one or two sentences covering:
+   - **What** it does (not *how* — that's the body).
+   - **Parameters** (if not obvious from the type annotation + name).
+   - **Return value** (if any).
+   - **Side effects** (mutates state, writes a file, starts a timer, …).
+
+For trivial one-liners (`def x(self) -> int: return self._x`) a single
+phrase is fine: `"""Return the cached x value."""`.
+
+### Forbidden
+
+- Negative descriptions ("does not block", "no goniometric fallback").
+- WPILib or project-wide conventions ("state machine in periodic()").
+- Section-marker comments (`# ── Config ──`).
+- Agent workflow instructions or TODOs about future features.
+- "Optional" disclaimers for parameters that always have a value.
+- Implementation details that belong in the function body.
+
+### Enforcement
+
+A CI-compatible check lives at `scripts/check_docstrings.py`.  It parses
+every `.py` file with the `ast` module and reports any module, class, or
+function that lacks a docstring.  The project-level lint suite runs it
+after `ruff`:
+
+```
+uv run ruff check . && uv run python scripts/check_docstrings.py
+```
 
 ## Key commands
 
@@ -93,12 +109,12 @@ non-obvious implementation choice was made in a specific location.
 | Run sim (desktop) | `uv run robotpy sim` |
 | Run tests | `uv run python -m pytest tests/` |
 | Format | `uv run ruff format .` |
-| Lint | `uv run ruff check .` |
+| Lint | `uv run ruff check . && uv run python scripts/check_docstrings.py` |
 | Typecheck | `uv run python -m mypy . --strict` |
 | Retrieve test results (AUTONOMOUS) | `scp lvuser@systemcore-6708.local:/home/lvuser/test_results/static_pose_results.csv .` |
 | Retrieve calibration data (UTILITY) | `scp lvuser@systemcore-6708.local:/home/lvuser/calibration_data/servo_calib_*.csv .` |
 
-Run `lint -> typecheck -> test` before committing. All three are expected to pass.
+Run `lint -> typecheck -> test` before committing. All three are expected to pass.  The full lint command is `uv run ruff check . && uv run python scripts/check_docstrings.py`.
 
 ## First-time setup
 
@@ -175,4 +191,5 @@ Update `CADConstants` class when CAD changes:
 - `camera_pose_in_bench` — `Pose3d` camera translation in bench frame (rotation from IMU).
 - `camera_to_imu` — `Transform3d` from camera reference to IMU chip.
 - `camera_focal_point_offset` — `Translation3d` from camera ref to lens focal point.
-- `apriltag6_pose`, `apriltag7_pose`, `charuco_board_pose` — fixed `Pose3d` in bench frame.
+- `left_tag_pose`, `right_tag_pose`, `charuco_board_pose` — fixed `Pose3d` in bench frame.
+- `left_tag_id` (6), `right_tag_id` (7) — fiducial IDs for the two bench tags.

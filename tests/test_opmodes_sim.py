@@ -252,7 +252,7 @@ def test_static_pose_storage_uses_cwd_in_sim(robot: Robot) -> None:
     mode._results = [
         WindowResult(
             pose_idx=0,
-            expected_tags=(6, 7),
+            expected_tags=("left", "right"),
             cmd_r=0.0,
             cmd_p=0.0,
             cmd_y=0.0,

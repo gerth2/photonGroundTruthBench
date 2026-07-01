@@ -1,9 +1,21 @@
+"""Physical constants, PID gains, profile limits, and calibration parameters for the calibration bench.
+
+Each inner dataclass groups a related set of constants.  BenchConfig provides
+a single import point that aggregates all sub-configs for the Robot instance.
+"""
+
 import math
 
 from wpimath import Pose3d, Rotation3d, Transform3d, Translation3d
 
 
 class PositionerConfig:
+    """PWM channels and soft limits for the three-axis servo positioner.
+
+    Each axis (pitch, yaw, roll) defines a center, min, and max in N11
+    (-1..1) servo space.  All commanded values are clamped to these bounds.
+    """
+
     pitch_servo_channel: int = 0
     yaw_servo_channel: int = 1
     roll_servo_channel: int = 2
@@ -22,6 +34,8 @@ class PositionerConfig:
 
 
 class IMUConfig:
+    """I²C bus parameters, sensor range settings, and Mahony filter gains for the MPU6050 IMU."""
+
     i2c_port: int = 1
     i2c_address: int = 0x68  # MPU6050 default when AD0 is low
 
@@ -36,6 +50,12 @@ class IMUConfig:
 
 
 class CADConstants:
+    """Fixed transforms and tag poses derived from the CAD model of the bench.
+
+    All values are in the bench coordinate frame defined in AGENTS.md.
+    Update when the CAD model changes.
+    """
+
     camera_to_imu = Transform3d(
         Translation3d(0.02, 0.0, 0.01),
         Rotation3d(0.0, 0.0, 0.0),
@@ -45,12 +65,15 @@ class CADConstants:
 
     tag_size_m: float = 0.1524  # 6-inch AprilTag (family 36h11)
 
-    apriltag6_pose = Pose3d(
+    left_tag_id: int = 6
+    right_tag_id: int = 7
+
+    left_tag_pose = Pose3d(
         Translation3d(0.5, -0.3, 0.0),
         Rotation3d(0.0, 0.0, math.pi),
     )
 
-    apriltag7_pose = Pose3d(
+    right_tag_pose = Pose3d(
         Translation3d(0.5, 0.3, 0.0),
         Rotation3d(0.0, 0.0, math.pi),
     )
@@ -67,6 +90,8 @@ class CADConstants:
 
 
 class PIDConfig:
+    """Per-axis proportional and integral gains for the closed-loop positioner feedback."""
+
     pitch_kp: float = 0.05
     pitch_ki: float = 0.3
     yaw_kp: float = 0.05
@@ -79,6 +104,8 @@ class PIDConfig:
 
 
 class ProfileConfig:
+    """Trapezoidal motion-profile velocity and acceleration limits per axis."""
+
     pitch_max_velocity_degps: float = 10.0
     pitch_max_acceleration_degps2: float = 60.0
     yaw_max_velocity_degps: float = 10.0
@@ -88,6 +115,8 @@ class ProfileConfig:
 
 
 class CalibrationConfig:
+    """Parameters that control the servo-calibration sweep and data-storage path."""
+
     num_points: int = 100
     slew_duration_s: float = 1.0
     settle_duration_s: float = 3.0
@@ -96,6 +125,8 @@ class CalibrationConfig:
 
 
 class ValidationConfig:
+    """Static-pose test points, expected tag IDs, and dynamic-sweep parameters for validation."""
+
     static_pose_deg: list[tuple[float, float, float]] = [
         (0.0, 0.0, 0.0),
         (0.0, 15.0, 0.0),
@@ -105,14 +136,14 @@ class ValidationConfig:
         (5.0, 10.0, 0.0),
         (-5.0, -10.0, 0.0),
     ]
-    static_expected_tags: list[tuple[int, ...]] = [
-        (6, 7),
-        (7,),
-        (6,),
-        (6, 7),
-        (6, 7),
-        (7,),
-        (6,),
+    static_expected_tags: list[tuple[str, ...]] = [
+        ("left", "right"),
+        ("right",),
+        ("left",),
+        ("left", "right"),
+        ("left", "right"),
+        ("right",),
+        ("left",),
     ]
     static_settle_duration_s: float = 3.0
     static_sample_duration_s: float = 1.0
@@ -125,6 +156,12 @@ class ValidationConfig:
 
 
 class BenchConfig:
+    """Aggregate configuration that groups all sub-configs for injection into the Robot.
+
+    Each attribute references the relevant inner class so callers can access
+    e.g. ``BenchConfig.positioner.pitch_min``.
+    """
+
     positioner: type[PositionerConfig] = PositionerConfig
     imu: type[IMUConfig] = IMUConfig
     cad: type[CADConstants] = CADConstants

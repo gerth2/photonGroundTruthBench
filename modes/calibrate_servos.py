@@ -1,3 +1,6 @@
+"""State machine that drives the servo positioner through random N11
+triplets while recording IMU attitude for calibration-map fitting."""
+
 from __future__ import annotations
 
 import os
@@ -20,6 +23,8 @@ from robot import utility  # noqa: E402
 
 
 class Phase(Enum):
+    """Named phase values for the calibrate-servos state machine."""
+
     HOME = auto()
     ZEROING = auto()
     MOVING = auto()
@@ -32,7 +37,12 @@ class Phase(Enum):
 
 @utility(name="Calibrate Servos", group="Calibration")
 class CalibrateServosMode(PeriodicOpMode):
+    """PeriodicOpMode that homes servos, zeros the IMU, then iterates
+    through random servo positions, recording ground-truth IMU rotation
+    at each point."""
+
     def __init__(self, robot: Robot) -> None:
+        """Configure the state machine from BenchConfig calibration parameters."""
         super().__init__()
         self._robot = robot
 
@@ -52,6 +62,7 @@ class CalibrateServosMode(PeriodicOpMode):
         self._completed = False
 
     def start(self) -> None:
+        """Home the positioner, reset state, and generate the random point list."""
         self._robot.positioner.disable_feedback()
         self._point_index = 0
         self._sample_buffer = []
@@ -71,6 +82,7 @@ class CalibrateServosMode(PeriodicOpMode):
         self._phase_start_time = Timer.getTimestamp()
 
     def periodic(self) -> None:
+        """Advance the calibration state machine each cycle."""
         now = Timer.getTimestamp()
 
         if self._phase is Phase.HOME:
@@ -127,11 +139,13 @@ class CalibrateServosMode(PeriodicOpMode):
             self._phase_start_time = now
 
     def end(self) -> None:
+        """Write CSV if calibration completed, then re-enable positioner feedback."""
         if self._completed and self._results:
             self._write_csv()
         self._robot.positioner.enable_feedback()
 
     def _write_csv(self) -> None:
+        """Write the accumulated (servo, actual) results to a timestamped CSV file."""
         storage = (
             os.path.join(os.getcwd(), "calibration_data")
             if wpilib.RobotBase.isSimulation()

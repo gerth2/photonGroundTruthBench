@@ -8,7 +8,7 @@ gradual drift using the accelerometer's estimate of "down".  The integral
 term (ki) tracks gyro bias over longer periods.
 
 Yaw is unobservable from accelerometer-only correction (no magnetometer),
-so it drifts freely — acceptable for short bench runs.
+so it drifts freely -- acceptable for short bench runs.
 """
 
 import math
@@ -19,28 +19,31 @@ from utilities.math_utils import rotation3d_to_euler
 
 
 class MahonyFilter:
+    """Complementary (Mahony) filter fusing gyroscope integration with accelerometer gravity-vector correction into a unit quaternion. Updated incrementally via update(); the caller supplies gyro and accel readings each cycle. Yaw drifts freely (no magnetometer)."""
+
     def __init__(self, kp: float = 0.5, ki: float = 0.0) -> None:
+        """Initialise filter gains and reset quaternion state to identity."""
         self._kp = kp
         self._ki = ki
 
-        # Quaternion state: identity initially (gravity aligned with -Z).
         self._qw = 1.0
         self._qx = 0.0
         self._qy = 0.0
         self._qz = 0.0
 
-        # Running bias estimate subtracted from raw gyro readings.
         self._bias_x = 0.0
         self._bias_y = 0.0
         self._bias_z = 0.0
 
     def reset(self) -> None:
+        """Reset quaternion state to identity (zero rotation)."""
         self._qw = 1.0
         self._qx = 0.0
         self._qy = 0.0
         self._qz = 0.0
 
     def set_gyro_bias(self, bx: float, by: float, bz: float) -> None:
+        """Set the gyroscope bias offsets subtracted from each raw reading."""
         self._bias_x = bx
         self._bias_y = by
         self._bias_z = bz
@@ -55,12 +58,11 @@ class MahonyFilter:
         accel_z: float,
         dt: float,
     ) -> None:
-        # Remove estimated bias from raw gyro readings.
+        """Advance the filter one timestep with gyroscope and accelerometer readings and the elapsed time in seconds."""
         gx = gyro_x - self._bias_x
         gy = gyro_y - self._bias_y
         gz = gyro_z - self._bias_z
 
-        # Normalise accelerometer to get unit gravity vector.
         a_norm = math.sqrt(accel_x**2 + accel_y**2 + accel_z**2)
         if a_norm < 1e-6:
             self._integrate_gyro(gx, gy, gz, dt)
@@ -70,8 +72,6 @@ class MahonyFilter:
         ay = accel_y / a_norm
         az = accel_z / a_norm
 
-        # Estimate gravity direction from current quaternion (rotate +Z
-        # by the inverse quaternion, then take the third column).
         g_est_x = 2.0 * (self._qx * self._qz - self._qw * self._qy)
         g_est_y = 2.0 * (self._qw * self._qx + self._qy * self._qz)
         g_est_z = (
@@ -81,18 +81,15 @@ class MahonyFilter:
             + self._qz * self._qz
         )
 
-        # Cross product between measured and estimated gravity → error.
         err_x = ay * g_est_z - az * g_est_y
         err_y = az * g_est_x - ax * g_est_z
         err_z = ax * g_est_y - ay * g_est_x
 
-        # Integral term accumulates gyro bias over time.
         if self._ki > 0.0:
             self._bias_x += self._ki * err_x * dt
             self._bias_y += self._ki * err_y * dt
             self._bias_z += self._ki * err_z * dt
 
-        # Correct gyro reading with proportional feedback.
         gx += self._kp * err_x
         gy += self._kp * err_y
         gz += self._kp * err_z
@@ -113,7 +110,6 @@ class MahonyFilter:
         self._qy += dqy
         self._qz += dqz
 
-        # Re-normalise to prevent drift from integration error.
         norm = math.sqrt(self._qw**2 + self._qx**2 + self._qy**2 + self._qz**2)
         if norm > 1e-6:
             inv_norm = 1.0 / norm
@@ -123,11 +119,13 @@ class MahonyFilter:
             self._qz *= inv_norm
 
     def get_rotation(self) -> Rotation3d:
+        """Return the current attitude estimate as a wpimath Rotation3d."""
         return Rotation3d(Quaternion(self._qw, self._qx, self._qy, self._qz))
 
     def get_euler_angles(self) -> tuple[float, float, float]:
-        """Convenience: decompose internal quaternion to (roll, pitch, yaw)."""
+        """Convenience: return the current attitude as (roll, pitch, yaw) in radians."""
         return rotation3d_to_euler(self.get_rotation())
 
     def get_gyro_bias(self) -> tuple[float, float, float]:
+        """Return the current gyroscope bias estimate as (bx, by, bz)."""
         return (self._bias_x, self._bias_y, self._bias_z)

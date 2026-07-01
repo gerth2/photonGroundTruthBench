@@ -44,11 +44,19 @@ _FEATURE_NAMES = ["1", "r", "p", "y", "r²", "p²", "y²", "r·p", "r·y", "p·y
 
 
 def _make_features(R: np.ndarray, P: np.ndarray, Y: np.ndarray) -> np.ndarray:
+    """Build the degree-2 design matrix with cross terms from servo or angle arrays.
+
+    Columns: 1, r, p, y, r², p², y², r·p, r·y, p·y.
+    """
     ones = np.ones_like(R)
     return np.column_stack([ones, R, P, Y, R**2, P**2, Y**2, R * P, R * Y, P * Y])
 
 
 def _fit(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, float, np.ndarray]:
+    """Fit a linear model via least squares.
+
+    Returns coefficients, RMS error, and predictions.
+    """
     coeffs, *_ = np.linalg.lstsq(X, y, rcond=None)
     pred = X @ coeffs
     resid = y - pred
@@ -60,6 +68,10 @@ def _fit(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, float, np.ndarray]:
 
 
 def list_remote_files(host: str, remote_dir: str) -> list[str]:
+    """List files in a remote directory over SSH.
+
+    Returns full remote paths.  Exits the process on SSH failure.
+    """
     result = subprocess.run(
         ["ssh", f"lvuser@{host}", "ls", "-1", remote_dir],
         capture_output=True,
@@ -74,6 +86,7 @@ def list_remote_files(host: str, remote_dir: str) -> list[str]:
 
 
 def download_file(host: str, remote_path: str, local_path: str) -> None:
+    """Download a file from the remote host via SCP."""
     subprocess.run(
         ["scp", f"lvuser@{host}:{remote_path}", local_path],
         check=True,
@@ -213,6 +226,7 @@ def interactive_analysis(
     _N_BINS = 20
 
     def _update(val: object = None) -> None:
+        """Recompute filtered data and replot on slider or checkbox change."""
         tol = 0.3
         r_val = s_r.val
         p_val = s_p.val
@@ -291,6 +305,7 @@ def interactive_analysis(
         fig.canvas.draw_idle()
 
     def _checkbox_toggle(label: str) -> None:
+        """Toggle visibility of raw data, filtered points, or error bars."""
         for name in ("roll", "pitch", "yaw"):
             s = store[name]
             if label == "Raw data":
@@ -325,6 +340,12 @@ def plot_results(
     rms_y: float,
     out_path: str,
 ) -> None:
+    """Generate a scatter-versus-prediction and residual-histogram figure, saved to PNG.
+
+    Produces a 3x2 figure (one row per axis) showing predicted vs actual
+    scatter with a unity line and a histogram of residuals.  Saves to
+    *out_path* at 150 DPI.
+    """
     fig, axes = plt.subplots(3, 2, figsize=(14, 10))
     fig.suptitle("Servo Calibration — Polynomial Fit (degree 2, cross terms)")
 
@@ -378,10 +399,16 @@ def generate_map_code(
     source_file: str = "<unknown>",
     systemcore_serial: str = "<unknown>",
 ) -> str:
+    """Generate Python source code for a ``CalibrationMap`` class.
+
+    Returns the complete class source as a string, ready to write to
+    ``config/servo_calibration_map.py``.
+    """
     now = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M")
     host = __import__("socket").gethostname()
 
     def fmt_list(arr: np.ndarray) -> str:
+        """Format a numpy array as a Python list literal string."""
         vals = ", ".join(f"{v:.10f}" for v in arr)
         return f"[{vals}]"
 
@@ -450,6 +477,7 @@ def generate_map_code(
 
 
 def main() -> None:
+    """CLI entry point: parse args, download CSV, fit polynomial, display plots, write config."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "host",

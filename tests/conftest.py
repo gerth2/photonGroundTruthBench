@@ -1,3 +1,5 @@
+"""Shared fixtures and CLI options for the test suite."""
+
 import sys
 from pathlib import Path
 
@@ -7,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register the ``--interactive-calib`` CLI flag for the cross-axis coupling GUI."""
     parser.addoption(
         "--interactive-calib",
         action="store_true",
@@ -17,9 +20,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 @pytest.fixture
 def interactive_calib(request: pytest.FixtureRequest) -> bool:
+    """Return True if ``--interactive-calib`` was passed and a GUI backend is available; otherwise skip."""
     if not request.config.getoption("--interactive-calib"):
         return False
-    # Verify a usable GUI backend exists before the test runs.
     try:
         import matplotlib
         import matplotlib.pyplot as plt

@@ -69,6 +69,8 @@ def _apply_map(
 
 
 class TestCalibrationPipeline:
+    """Round-trip tests that synthesise calibration CSV data, run the fit pipeline, and verify coefficient recovery and generated code correctness."""
+
     n = 200
     noise_std = 0.01  # rad — sensible IMU noise level
 
@@ -77,19 +79,17 @@ class TestCalibrationPipeline:
         n: int | None = None,
         noise_std: float | None = None,
     ) -> dict[str, np.ndarray]:
+        """Generate synthetic calibration data by sampling servo N11 commands and adding Gaussian IMU noise."""
         n = n or self.n
         noise_std = noise_std or self.noise_std
 
         rng = np.random.default_rng(42)
-        # Sample servo N11 commands across the mechanism range.
         n11_r = rng.uniform(-0.8, 0.8, n)
         n11_p = rng.uniform(-0.8, 0.8, n)
         n11_y = rng.uniform(-0.8, 0.8, n)
 
-        # True angle = CalibrationMap.forward(n11)
         true_r, true_p, true_y = _apply_map(n11_r, n11_p, n11_y)
 
-        # Add IMU noise
         actual_r = true_r + rng.normal(0, noise_std, n)
         actual_p = true_p + rng.normal(0, noise_std, n)
         actual_y = true_y + rng.normal(0, noise_std, n)
@@ -106,9 +106,7 @@ class TestCalibrationPipeline:
     # ── Identity recovery ────────────────────────────────────────────
 
     def test_identity_round_trip(self) -> None:
-        """With identity map and modest noise, forward coefficients should
-        be recovered with RMS close to the injected noise level and the
-        recovered linear terms within 0.05 of the true coefficients."""
+        """With identity map and modest noise, forward coefficients should be recovered with RMS close to the injected noise level and recovered linear terms within 0.05 of truth."""
         data = self._synthesise_data()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -122,23 +120,19 @@ class TestCalibrationPipeline:
             loaded["actual_yaw_rad"],
         )
 
-        # Forward fit: N11 → angle
         X = _make_features(R, P, Y_s)
         cr, rms_r, _ = _fit(X, AR)
         cp, rms_p, _ = _fit(X, AP)
         cy, rms_y, _ = _fit(X, AY)
 
-        # RMS should be close to the injected noise
         assert rms_r < 0.025, f"Roll RMS too high: {rms_r:.4f}"
         assert rms_p < 0.025, f"Pitch RMS too high: {rms_p:.4f}"
         assert rms_y < 0.025, f"Yaw RMS too high: {rms_y:.4f}"
 
-        # Linear term (index 1 for r, 2 for p, 3 for y) should be ≈ 1.0
         assert abs(cr[1] - 1.0) < 0.05, f"Roll linear coeff: {cr[1]:.4f}"
         assert abs(cp[2] - 1.0) < 0.05, f"Pitch linear coeff: {cp[2]:.4f}"
         assert abs(cy[3] - 1.0) < 0.05, f"Yaw linear coeff: {cy[3]:.4f}"
 
-        # All other coefficients should be near zero
         for label, coeffs in [("roll", cr), ("pitch", cp), ("yaw", cy)]:
             for i, c in enumerate(coeffs):
                 if (label == "roll" and i == 1) or (
@@ -148,40 +142,36 @@ class TestCalibrationPipeline:
                 assert abs(c) < 0.05, f"{label} coeff {_FEATURE_NAMES[i]} = {c:.4f}"
 
     def test_forward_backward_consistency(self) -> None:
-        """Applying forward then inverse (or vice versa) should approximately
-        reconstruct the original values for the given set of points."""
+        """Verify that forward(inverse(x)) and inverse(forward(x)) approximately reconstruct the original values."""
         n = 50
         rng = np.random.default_rng(123)
         n11_r = rng.uniform(-0.6, 0.6, n)
         n11_p = rng.uniform(-0.6, 0.6, n)
         n11_y = rng.uniform(-0.6, 0.6, n)
 
-        # forward(inverse(angle)) ≈ angle
         for ri, pi, yi in zip(n11_r, n11_p, n11_y):
             ar, ap, ay = CalibrationMap.forward(float(ri), float(pi), float(yi))
             sr, sp, sy = CalibrationMap.inverse(ar, ap, ay)
-            assert abs(sr - ri) < 1e-12, f"forward→inverse roll mismatch: {sr} vs {ri}"
-            assert abs(sp - pi) < 1e-12, f"forward→inverse pitch mismatch: {sp} vs {pi}"
-            assert abs(sy - yi) < 1e-12, f"forward→inverse yaw mismatch: {sy} vs {yi}"
+            assert abs(sr - ri) < 1e-12, f"forward->inverse roll mismatch: {sr} vs {ri}"
+            assert abs(sp - pi) < 1e-12, f"forward->inverse pitch mismatch: {sp} vs {pi}"
+            assert abs(sy - yi) < 1e-12, f"forward->inverse yaw mismatch: {sy} vs {yi}"
 
-        # inverse(forward(angle)) ≈ angle
         angle_r = rng.uniform(-0.5, 0.5, n)
         angle_p = rng.uniform(-0.5, 0.5, n)
         angle_y = rng.uniform(-0.5, 0.5, n)
         for ri, pi, yi in zip(angle_r, angle_p, angle_y):
             sr, sp, sy = CalibrationMap.inverse(ri, pi, yi)
             ar, ap, ay = CalibrationMap.forward(sr, sp, sy)
-            assert abs(ar - ri) < 1e-12, f"inverse→forward roll mismatch: {ar} vs {ri}"
+            assert abs(ar - ri) < 1e-12, f"inverse->forward roll mismatch: {ar} vs {ri}"
             assert (
                 abs(ap - pi) < 1e-12
-            ), f"inverse→forward pitch mismatch: {ap} vs {pi}"
+            ), f"inverse->forward pitch mismatch: {ap} vs {pi}"
             assert (
-                abs(ay - yi) < 1e-12
-            ), f"inverse→forward yaw mismatch: {ay} vs {yi}"
+                abs(sy - yi) < 1e-12
+            ), f"inverse->forward yaw mismatch: {sy} vs {yi}"
 
     def test_pipeline_with_nontrivial_coefficients(self) -> None:
-        """Overwrite CalibrationMap coefficients with a weakly-coupled
-        polynomial, synthesise data, fit, and verify the recovery."""
+        """Overwrite CalibrationMap coefficients with a weakly-coupled polynomial, synthesise data, fit, and verify recovery."""
         saved: dict[str, list[float]] = {}
         for attr in (
             "FORWARD_COEFFS_ROLL",
@@ -194,10 +184,6 @@ class TestCalibrationPipeline:
             saved[attr] = list(getattr(CalibrationMap, attr))
 
         try:
-            # Non-trivial forward map with small cross-coupling.
-            # roll_rad = 0.9*r + 0.1*p
-            # pitch_rad = 0.9*p + 0.1*y
-            # yaw_rad = 0.9*y + 0.1*r
             CalibrationMap.FORWARD_COEFFS_ROLL = [
                 0.0, 0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
             ]
@@ -207,7 +193,6 @@ class TestCalibrationPipeline:
             CalibrationMap.FORWARD_COEFFS_YAW = [
                 0.0, 0.1, 0.0, 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
             ]
-            # Inverse — approximate decoupled inverse of the above.
             CalibrationMap.INVERSE_COEFFS_SERVO_R = [
                 0.0, 1.111111, -0.123457, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
             ]
@@ -244,17 +229,15 @@ class TestCalibrationPipeline:
             assert rms_p < 0.04
             assert rms_y < 0.04
 
-            # Check the dominant cross-term is detectable
-            assert abs(cr[2] - 0.1) < 0.04, f"Roll←pitch cross {cr[2]:.4f}"
-            assert abs(cp[3] - 0.1) < 0.04, f"Pitch←yaw cross {cp[3]:.4f}"
-            assert abs(cy[1] - 0.1) < 0.04, f"Yaw←roll cross {cy[1]:.4f}"
+            assert abs(cr[2] - 0.1) < 0.04, f"Roll<-pitch cross {cr[2]:.4f}"
+            assert abs(cp[3] - 0.1) < 0.04, f"Pitch<-yaw cross {cp[3]:.4f}"
+            assert abs(cy[1] - 0.1) < 0.04, f"Yaw<-roll cross {cy[1]:.4f}"
         finally:
             for attr, vals in saved.items():
                 setattr(CalibrationMap, attr, vals)
 
     def test_generated_code_contains_expected_coefficients(self) -> None:
-        """generate_map_code() should produce valid Python that contains
-        the coefficient values we pass in (within formatting precision)."""
+        """Verify that generate_map_code() produces valid Python containing the expected coefficient values."""
         cr = np.array([0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         cp = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         cy = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -270,32 +253,25 @@ class TestCalibrationPipeline:
             systemcore_serial="test-serial-0001",
         )
 
-        # Check structural elements
         assert "class CalibrationMap" in code
         assert "def forward" in code
         assert "def inverse" in code
         assert "fake_calib.csv" in code
         assert "test-serial-0001" in code
 
-        # Check coefficient values appear (formatted to 10 decimals)
         assert "1.0000000000" in code
         assert "0.0000000000" in code
 
-        # Check RMS values
         assert "0.01230000" in code
         assert "0.01110000" in code
         assert "0.00990000" in code
 
-        # Check N_POINTS
         assert "N_POINTS = 200" in code
 
-        # Verify the code is syntactically valid
         compile(code, "<test-generated>", "exec")
 
     def test_generated_code_is_executable_map(self) -> None:
-        """The code from generate_map_code() can be exec'd and the
-        resulting CalibrationMap class works."""
-
+        """Verify that code from generate_map_code() can be exec'd and produces a working CalibrationMap class."""
         cr = np.array([0.0, 0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         cp = np.array([0.0, 0.0, 0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         cy = np.array([0.0, 0.0, 0.0, 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -334,14 +310,7 @@ class TestCalibrationPipeline:
     def test_interactive_calibration_analysis(
         self, interactive_calib: bool
     ) -> None:
-        """Open the interactive cross-axis coupling GUI on synthetic data.
-
-        Only runs when ``pytest --interactive-calib`` is passed.  The GUI
-        shows 3 subplots (roll / pitch / yaw) with sliders and checkboxes
-        so you can explore cross-axis coupling on a known ground-truth map
-        with injected noise.  After closing the window the same numeric
-        assertions as identity_round_trip are checked.
-        """
+        """Open the interactive cross-axis coupling GUI on synthetic data. Only runs when ``pytest --interactive-calib`` is passed."""
         if not interactive_calib:
             pytest.skip("pass --interactive-calib to open the GUI")
 

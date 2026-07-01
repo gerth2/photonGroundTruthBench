@@ -1,3 +1,5 @@
+"""Wraps PhotonVision camera and pose estimator, publishing results each cycle."""
+
 import wpilib
 from photonlibpy import PhotonCamera
 from photonlibpy.photonPoseEstimator import PhotonPoseEstimator
@@ -8,12 +10,26 @@ from core.subsystem import Subsystem
 
 
 class VisionProcessor(Subsystem):
+    """Reads the latest PhotonCamera result and runs multi-tag pose estimation.
+
+    Lifecycle: constructed with a camera name and pose estimator.  Call
+    ``periodic()`` each loop to update ``get_latest_pose()``.  The pose is
+    set to None when no targets are visible.
+    """
+
     def __init__(
         self,
         camera_name: str,
         pose_estimator: PhotonPoseEstimator,
         camera_to_robot: Transform3d,
     ) -> None:
+        """Initialise the PhotonCamera and store the pose estimator.
+
+        Args:
+            camera_name: NetworkTables name of the PhotonVision camera.
+            pose_estimator: Configured PhotonPoseEstimator instance.
+            camera_to_robot: Transform from camera frame to robot frame.
+        """
         super().__init__()
 
         self._camera = PhotonCamera(camera_name)
@@ -23,9 +39,16 @@ class VisionProcessor(Subsystem):
         self._latest_pose: EstimatedRobotPose | None = None
 
     def get_latest_pose(self) -> EstimatedRobotPose | None:
+        """Return the most recent estimated robot pose, or None if no targets."""
         return self._latest_pose
 
     def periodic(self) -> None:
+        """Fetch the latest camera result and attempt multi-tag pose estimation.
+
+        Falls back to lowest-ambiguity single-tag estimation if multi-tag
+        fails.  Publishes per-target transforms and the estimated pose to
+        SmartDashboard.
+        """
         sd = wpilib.SmartDashboard
 
         result = self._camera.getLatestResult()

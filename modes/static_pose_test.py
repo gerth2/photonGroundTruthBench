@@ -1,3 +1,7 @@
+"""Autonomous routine that commands the positioner through a list of
+static poses, samples IMU and PhotonVision at each, and writes RMS
+error results to CSV."""
+
 from __future__ import annotations
 
 import csv
@@ -27,6 +31,8 @@ _SAMPLE_DURATION_S = 1.0
 
 
 class Phase:
+    """String sentinel values for the static-pose state machine."""
+
     ZEROING = "ZEROING"
     MOVING = "MOVING"
     PROFILE_WAIT = "PROFILE_WAIT"
@@ -38,8 +44,11 @@ class Phase:
 
 @dataclass
 class WindowResult:
+    """Accumulated sample data and computed RMS errors for one static-pose
+    measurement window."""
+
     pose_idx: int
-    expected_tags: tuple[int, ...]
+    expected_tags: tuple[str, ...]
     cmd_r: float
     cmd_p: float
     cmd_y: float
@@ -52,7 +61,13 @@ class WindowResult:
 
 @autonomous(name="Static Pose Test", group="Bench")
 class StaticPoseMode(PeriodicOpMode):
+    """PeriodicOpMode that iterates a pose list, waits for stability at
+    each, samples IMU and PhotonVision simultaneously, then writes
+    comparison results."""
+
     def __init__(self, robot: Robot) -> None:
+        """Read validation config, build the pose list with expected tag IDs,
+        and initialise all sampling buffers."""
         super().__init__()
         self._robot = robot
 
@@ -65,7 +80,7 @@ class StaticPoseMode(PeriodicOpMode):
             (math.radians(p), math.radians(y), math.radians(r))
             for p, y, r in vc.static_pose_deg
         ]
-        self._expected_tags: list[tuple[int, ...]] = []
+        self._expected_tags: list[tuple[str, ...]] = []
         for i in range(len(self._poses)):
             tags = (
                 vc.static_expected_tags[i] if i < len(vc.static_expected_tags) else ()
@@ -84,6 +99,7 @@ class StaticPoseMode(PeriodicOpMode):
         self._results: list[WindowResult] = []
 
     def start(self) -> None:
+        """Reset all state and begin IMU zeroing."""
         self._phase = Phase.ZEROING
         self._pose_index = 0
         self._phase_start_time = Timer.getTimestamp()
@@ -96,6 +112,8 @@ class StaticPoseMode(PeriodicOpMode):
         self._robot.sensors.start_zeroing()
 
     def periodic(self) -> None:
+        """Advance the static-pose state machine each cycle and publish status
+        to NetworkTables."""
         if self._phase is Phase.ZEROING:
             self._zeroing()
             return
@@ -121,25 +139,31 @@ class StaticPoseMode(PeriodicOpMode):
         self._publish_nt()
 
     def end(self) -> None:
+        """Clear the NetworkTables running flag and set the completed flag."""
         SmartDashboard.putBoolean("static_pose/running", False)
         SmartDashboard.putBoolean("static_pose/completed", self._done)
 
     def _zeroing(self) -> None:
+        """Transition to MOVING once the IMU bias is estimated."""
         if self._robot.sensors.is_zeroed():
             self._phase = Phase.MOVING
 
     def _moving(self) -> None:
+        """Command the current pose goal and advance to PROFILE_WAIT."""
         pitch, yaw, roll = self._poses[self._pose_index]
         self._robot.positioner.set_goal_rad(pitch, yaw, roll)
         self._phase = Phase.PROFILE_WAIT
 
     def _profile_wait(self) -> None:
+        """Transition to STABILIZING once the positioner's motion profile completes."""
         if self._robot.positioner.profile_finished():
             self._stability_buf.clear()
             self._phase_start_time = Timer.getTimestamp()
             self._phase = Phase.STABILIZING
 
     def _stabilizing(self) -> None:
+        """Monitor IMU attitude over a sliding window and transition to SAMPLING
+        when stable or after a timeout."""
         now = Timer.getTimestamp()
         r, p, y = self._robot.sensors.get_euler_angles()
         self._stability_buf.append((r, p, y, now))
@@ -171,12 +195,15 @@ class StaticPoseMode(PeriodicOpMode):
             self._start_sampling()
 
     def _start_sampling(self) -> None:
+        """Clear sample buffers and start the sampling window."""
         self._window_imu.clear()
         self._window_pv.clear()
         self._phase_start_time = Timer.getTimestamp()
         self._phase = Phase.SAMPLING
 
     def _sampling(self) -> None:
+        """Collect IMU and PhotonVision samples for the configured duration,
+        then compute RMS errors."""
         imu_r, imu_p, imu_y = self._robot.sensors.get_euler_angles()
         self._window_imu.append((imu_r, imu_p, imu_y))
 
@@ -228,6 +255,7 @@ class StaticPoseMode(PeriodicOpMode):
         cmd_p, cmd_y, cmd_r = self._poses[self._pose_index]
 
         def _rms(vals: list[float]) -> float:
+            """Return the root-mean-square of the given values."""
             if not vals:
                 return 0.0
             return math.sqrt(sum(v * v for v in vals) / len(vals))
@@ -256,6 +284,7 @@ class StaticPoseMode(PeriodicOpMode):
         self._phase = Phase.RECORD
 
     def _record(self) -> None:
+        """Increment the pose index and reset buffers for the next pose."""
         self._pose_index += 1
         self._stability_buf.clear()
         self._window_imu.clear()
@@ -263,6 +292,7 @@ class StaticPoseMode(PeriodicOpMode):
         self._phase = Phase.MOVING
 
     def _publish_nt(self) -> None:
+        """Publish current progress and completion status to SmartDashboard."""
         sd = SmartDashboard
         sd.putBoolean("static_pose/running", True)
         sd.putNumber("static_pose/pose_index", self._pose_index)
@@ -272,6 +302,7 @@ class StaticPoseMode(PeriodicOpMode):
             sd.putString("static_pose/completed_at", self._completed_at)
 
     def _flush_csv(self) -> None:
+        """Write all accumulated WindowResult records to a CSV file on disk."""
         storage = (
             os.path.join(os.getcwd(), "test_results")
             if wpilib.RobotBase.isSimulation()
