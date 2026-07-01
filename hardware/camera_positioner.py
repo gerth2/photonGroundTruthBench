@@ -1,29 +1,3 @@
-"""Subsystem for the 3-axis servo positioner (roll, pitch, yaw).
-
-Pulse range 1000-2000 us (standard for MG90S servos).
-
-Closed-loop correction (PI) runs in periodic() when the IMU has been
-zeroed and a goal has been commanded via set_goal_rad().  Each axis
-has a 1-D trapezoidal motion profile (TrapezoidProfile) that smooths
-step inputs — the profile output, not the raw goal, is used as the
-feedforward setpoint in the PI loop.
-
-**N11 soft limits**: each axis has ``_min`` / ``_max`` that clamp every
-N11 value before it reaches PWM.  The N11 space is always [-1, 1] in
-full servo range, but the soft limits restrict to the mechanism-safe
-window.
-
-**RPY → N11**: the only conversion path is ``CalibrationMap.inverse()``.
-If no calibration map is loaded, ``set_goal_rad()`` still runs the
-profile + PI but uses the current (or centre) N11 as feedforward — the
-PI loop must converge from there.
-
-**N11 → PWM**: ``_n11_to_pulse()`` maps N11 [-1, 1] to 1000…2000 µs
-linearly, with a safety clamp to [-1, 1] at the static method level.
-The soft-limit clamp is applied at every API entry point before values
-are stored.
-"""
-
 import wpilib
 from wpilib import Timer
 from wpimath import TrapezoidProfile
@@ -88,11 +62,9 @@ class CameraPositioner(Subsystem):
         self._pitch_center = pitch_center
         self._pitch_min = pitch_min
         self._pitch_max = pitch_max
-
         self._yaw_center = yaw_center
         self._yaw_min = yaw_min
         self._yaw_max = yaw_max
-
         self._roll_center = roll_center
         self._roll_min = roll_min
         self._roll_max = roll_max
@@ -115,19 +87,18 @@ class CameraPositioner(Subsystem):
         self._desired_yaw: float | None = None
         self._desired_roll: float | None = None
 
-        self._profiled_pitch: float = 0.0  # rad — trapezoid profile setpoint
-        self._profiled_yaw: float = 0.0  # rad
-        self._profiled_roll: float = 0.0  # rad
-        self._profiled_pitch_vel: float = 0.0  # rad/s
-        self._profiled_yaw_vel: float = 0.0  # rad/s
-        self._profiled_roll_vel: float = 0.0  # rad/s
+        self._profiled_pitch: float = 0.0
+        self._profiled_yaw: float = 0.0
+        self._profiled_roll: float = 0.0
+        self._profiled_pitch_vel: float = 0.0
+        self._profiled_yaw_vel: float = 0.0
+        self._profiled_roll_vel: float = 0.0
 
         self._integral_pitch = 0.0
         self._integral_yaw = 0.0
         self._integral_roll = 0.0
         self._feedback_enabled = True
 
-        # N11 linear slew state (takes priority over profiled mode)
         self._n11_slewing: bool = False
         self._n11_slew_start: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._n11_slew_target: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -181,12 +152,6 @@ class CameraPositioner(Subsystem):
     def set_target_n11(
         self, pitch: float, yaw: float, roll: float, duration_s: float = 1.0
     ) -> None:
-        """Command a linear n11 slew from the current position to *target*.
-
-        The positioner interpolates linearly in n11 space over
-        *duration_s* seconds.  Any active profiled RPY goal is cancelled.
-        The target is clamped to per-axis soft limits.
-        """
         self._desired_pitch = None
         self._desired_yaw = None
         self._desired_roll = None
@@ -249,10 +214,6 @@ class CameraPositioner(Subsystem):
         self._feedback_enabled = True
 
     def get_current_n11(self) -> tuple[float, float, float]:
-        """Return the last commanded n11 (pitch, yaw, roll).
-
-        Returns (0,0,0) if nothing has been commanded yet.
-        """
         return (
             self._ff_pitch_n11 if self._ff_pitch_n11 is not None else 0.0,
             self._ff_yaw_n11 if self._ff_yaw_n11 is not None else 0.0,
@@ -284,7 +245,6 @@ class CameraPositioner(Subsystem):
             self._publish_telemetry(pitch_cmd, yaw_cmd, roll_cmd, err_p, err_y, err_r)
             return
 
-        # N11 linear slew — takes priority over profiled RPY mode.
         if self._n11_slewing:
             now = Timer.getTimestamp()
             elapsed = now - self._n11_slew_start_time
@@ -379,12 +339,6 @@ class CameraPositioner(Subsystem):
         self._roll_servo.setPulseTime(CameraPositioner._n11_to_pulse(roll_cmd))
 
         self._publish_telemetry(pitch_cmd, yaw_cmd, roll_cmd, err_p, err_y, err_r)
-
-    # ── NetworkTables key map (units) ──────────────────────────────
-    #   positioner/ff_n11_*    — n11 (-1..1), raw servo feedforward
-    #   positioner/goal_rpy    — rad  (roll, pitch, yaw), commanded pose
-    #   positioner/profiled_rpy— rad  (roll, pitch, yaw), trapezoid-smoothed
-    #   positioner/error_rpy   — rad  (roll, pitch, yaw), PI error = profiled - actual
 
     def _publish_telemetry(
         self,

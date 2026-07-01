@@ -1,10 +1,3 @@
-"""Slew all servos back to the configured centre position.
-
-Reads the current n11 position on start, then delegates the linear
-ramp to ``CameraPositioner.set_target_n11()``.  Periodic() is a no-op
-— the positioner handles the slew internally.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

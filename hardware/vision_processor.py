@@ -1,9 +1,3 @@
-"""Subsystem wrapping PhotonVision camera + pose estimator.
-
-Polls the camera at the loop rate, holds the latest estimated pose, and
-publishes the camera pose plus detected tag transforms to NetworkTables.
-"""
-
 import wpilib
 from photonlibpy import PhotonCamera
 from photonlibpy.photonPoseEstimator import PhotonPoseEstimator

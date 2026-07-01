@@ -1,23 +1,3 @@
-"""Zero IMU then run open-loop calibration sweep.
-
-Generates a CSV of random servo commands and the corresponding IMU
-attitude readings.  The offline tool scripts/download_calibration.py
-fits the inverse map from this file.
-
-All timing uses ``Timer.getTimestamp()`` (WPILib high-precision clock)
-— no loop-cycle counters.
-
-State machine in periodic():
-  1. HOME     — command center position, wait N s for settling
-  2. ZEROING  — start gyro bias estimation (at repeatable mechanical zero)
-  3. MOVING   — pick next random triplet, call positioner.set_target_n11()
-  4. SLEWING  — wait for positioner.n11_slew_finished()
-  5. SETTLING — wait N s for mechanical settling
-  6. SAMPLING — accumulate IMU readings for K s
-  7. RECORD   — average buffer to CSV, advance to next point
-  8. DONE     — all points collected, write CSV
-"""
-
 from __future__ import annotations
 
 import os
@@ -36,7 +16,7 @@ from utilities.math_utils import average_rotations, quaternion_to_euler
 if TYPE_CHECKING:
     from robot import Robot
 
-from robot import utility  # noqa: E402 — runtime decorator
+from robot import utility  # noqa: E402
 
 
 class Phase(Enum):
@@ -77,8 +57,6 @@ class CalibrateServosMode(PeriodicOpMode):
         self._sample_buffer = []
         self._results = []
 
-        # Populate points before setting phase so periodic() never sees
-        # an empty list (regardless of is_zeroed() returning True).
         self._points = [
             (
                 random.uniform(-0.8, 0.8),
@@ -88,8 +66,6 @@ class CalibrateServosMode(PeriodicOpMode):
             for _ in range(self._num_points)
         ]
 
-        # Home the positioner before zeroing so we sample bias at a
-        # repeatable mechanical zero.
         self._robot.positioner.set_raw_n11(0.0, 0.0, 0.0)
         self._phase = Phase.HOME
         self._phase_start_time = Timer.getTimestamp()

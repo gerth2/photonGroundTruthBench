@@ -56,6 +56,33 @@ The `Robot` instance is passed to each OpMode constructor (via `addOpMode`'s fac
 - **Robot** owns all hardware instantiation; opmodes receive it in their constructor and access subsystems via typed attributes (`robot.sensors`, `robot.positioner`, etc.).
 - **Don't import wpilib in utilities/domain logic** — keep it pure Python for testability.
 
+## Commenting
+
+All comments in this file (AGENTS.md) define the project's conventions.
+Code-level comments exist for only one reason: to explain *why* a
+non-obvious implementation choice was made in a specific location.
+
+**Forbidden in .py files:**
+- Comments that describe what the code is *not* doing ("no blocking loops",
+  "no goniometric fallback", "rather than loop-counter assumptions", etc.)
+- Comments that state WPILib/RobotPy conventions ("state machine in
+  periodic()", "runs at loop rate", "polls at loop rate")
+- Comments that repeat what the code already says ("# Get pitch" above
+  `pitch = get_pitch()`; "# Remove bias" above `gx -= bias`)
+- Section-marker comments (`# ── Config ──`, `# ── Tests ──`)
+- Module/class/function docstrings that describe *what* the code does
+  when the function name + body already make it clear
+- Agent workflow instructions or TODOs about future features
+- Comments referencing AGENTS.md or explaining project-wide conventions
+- "Optional" disclaimers for parameters that always have some value
+
+**Allowed in .py files (rare):**
+- `# noqa` / `# type: ignore` / `# nosec` directives
+- A one-line comment explaining *why* an unusual edge-case exists
+  (e.g. `# +1 because the profile returns for next step, not current`)
+- Public API docstrings only when the method signature is ambiguous
+  and the docstring clarifies semantics not visible in the name or body
+
 ## Key commands
 
 | Action | Command |

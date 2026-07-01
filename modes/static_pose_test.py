@@ -1,24 +1,3 @@
-"""Iterate a set of pre-planned camera poses where targets are visible.
-
-At each pose:
-  1. Command the positioner to the pose.
-  2. Wait for the trapezoid profile to finish (profiled == desired).
-  3. Wait for the IMU to stabilise (±0.5° per axis for 1 s).
-  4. Collect a 1 s window of IMU + PhotonVision data.
-  5. Compute:
-       - IMU mean roll/pitch/yaw (ground-truth camera rotation)
-       - IMU roll/pitch/yaw std dev
-       - IMU sample count (varies with actual loop rate)
-       - PV valid-sample count
-       - Per-sample error: GT⁻¹ * PV (relative transform in camera frame)
-       - RMS of translation x/y/z and rotation roll/pitch/yaw over window
-  6. Write row to CSV.
-
-All timing uses ``Timer.getTimestamp()`` (WPILib high-precision clock)
-— no loop-cycle counters.
-Timeout after 5 s waiting for stability so a stuck pose doesn't hang.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -28,7 +7,6 @@ import statistics
 import time
 from collections import deque
 from dataclasses import dataclass
-from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 import wpilib
@@ -42,22 +20,20 @@ if TYPE_CHECKING:
 
 from robot import autonomous  # noqa: E402
 
-_RAD_PER_DEG = math.pi / 180.0
-_STABILITY_DEG = 0.5  # max per-axis range for "stable"
-_STABILITY_RAD = _STABILITY_DEG * _RAD_PER_DEG
 _STABILITY_DURATION_S = 1.0
+_STABILITY_RAD = math.radians(0.5)
 _STABILITY_TIMEOUT_S = 5.0
 _SAMPLE_DURATION_S = 1.0
 
 
-class Phase(Enum):
-    ZEROING = auto()
-    MOVING = auto()
-    PROFILE_WAIT = auto()
-    STABILIZING = auto()
-    SAMPLING = auto()
-    RECORD = auto()
-    DONE = auto()
+class Phase:
+    ZEROING = "ZEROING"
+    MOVING = "MOVING"
+    PROFILE_WAIT = "PROFILE_WAIT"
+    STABILIZING = "STABILIZING"
+    SAMPLING = "SAMPLING"
+    RECORD = "RECORD"
+    DONE = "DONE"
 
 
 @dataclass
@@ -71,54 +47,41 @@ class WindowResult:
     pv_count: int
     imu_mean: tuple[float, float, float]
     imu_std: tuple[float, float, float]
-    rms_errors: dict[str, float]  # "dx","dy","dz","droll","dpitch","dyaw"
+    rms_errors: dict[str, float]
 
 
-@autonomous(name="Static Pose Test", group="Validation")
-class StaticPoseTest(PeriodicOpMode):
-    """Validate PV accuracy at a set of static poses."""
-
+@autonomous(name="Static Pose Test", group="Bench")
+class StaticPoseMode(PeriodicOpMode):
     def __init__(self, robot: Robot) -> None:
         super().__init__()
         self._robot = robot
 
         vc = BenchConfig.validation
-        self._storage_path = BenchConfig.validation.test_results_path
-        self._camera_translation = BenchConfig.cad.camera_pose_in_bench.translation()
+        cad = BenchConfig.cad
+        self._camera_translation = cad.camera_pose_in_bench.translation()
+        self._storage_path = vc.test_results_path
 
-        # Build pose list from config.
-        self._poses: list[tuple[float, float, float]] = []
+        self._poses: list[tuple[float, float, float]] = [
+            (math.radians(p), math.radians(y), math.radians(r))
+            for p, y, r in vc.static_pose_deg
+        ]
         self._expected_tags: list[tuple[int, ...]] = []
-        for i, (pitch_deg, yaw_deg, roll_deg) in enumerate(vc.static_pose_deg):
-            self._poses.append(
-                (
-                    math.radians(pitch_deg),
-                    math.radians(yaw_deg),
-                    math.radians(roll_deg),
-                )
-            )
+        for i in range(len(self._poses)):
             tags = (
                 vc.static_expected_tags[i] if i < len(vc.static_expected_tags) else ()
             )
             self._expected_tags.append(tags)
 
-        self._phase: Phase = Phase.ZEROING
+        self._phase: str = Phase.ZEROING
         self._pose_index = 0
         self._phase_start_time = 0.0
         self._done = False
         self._completed_at: str | None = None
 
-        # Stability buffer (deque of (r, p, y, timestamp) tuples).
         self._stability_buf: deque[tuple[float, float, float, float]] = deque()
-
-        # Sampling window buffers.
         self._window_imu: list[tuple[float, float, float]] = []
         self._window_pv: list[Pose3d] = []
-
-        # Accumulated results.
         self._results: list[WindowResult] = []
-
-    # ── Lifecycle ──────────────────────────────────────────────────────
 
     def start(self) -> None:
         self._phase = Phase.ZEROING
@@ -138,7 +101,6 @@ class StaticPoseTest(PeriodicOpMode):
             return
         if self._pose_index >= len(self._poses):
             self._flush_csv()
-            # Return positioner to the first pose.
             p0, y0, r0 = self._poses[0]
             self._robot.positioner.set_goal_rad(p0, y0, r0)
             self._phase = Phase.DONE
@@ -162,8 +124,6 @@ class StaticPoseTest(PeriodicOpMode):
         SmartDashboard.putBoolean("static_pose/running", False)
         SmartDashboard.putBoolean("static_pose/completed", self._done)
 
-    # ── Phase handlers ─────────────────────────────────────────────────
-
     def _zeroing(self) -> None:
         if self._robot.sensors.is_zeroed():
             self._phase = Phase.MOVING
@@ -184,7 +144,6 @@ class StaticPoseTest(PeriodicOpMode):
         r, p, y = self._robot.sensors.get_euler_angles()
         self._stability_buf.append((r, p, y, now))
 
-        # Purge entries older than the stability window.
         while self._stability_buf and self._stability_buf[0][3] < now - _STABILITY_DURATION_S:
             self._stability_buf.popleft()
 
@@ -228,7 +187,6 @@ class StaticPoseTest(PeriodicOpMode):
         if Timer.getTimestamp() - self._phase_start_time < _SAMPLE_DURATION_S:
             return
 
-        # Compute IMU statistics over the window.
         rolls = [s[0] for s in self._window_imu]
         pitches = [s[1] for s in self._window_imu]
         yaws = [s[2] for s in self._window_imu]
@@ -244,14 +202,11 @@ class StaticPoseTest(PeriodicOpMode):
             statistics.stdev(yaws) if len(yaws) > 1 else 0.0,
         )
 
-        # Ground-truth camera pose: fixed translation (from CAD) + IMU mean
-        # rotation.
         gt_pose = Pose3d(
             self._camera_translation,
             Rotation3d(imu_mean[0], imu_mean[1], imu_mean[2]),
         )
 
-        # Per-sample error: GT⁻¹ * PV (relative transform in camera frame).
         err_xs: list[float] = []
         err_ys: list[float] = []
         err_zs: list[float] = []
@@ -307,8 +262,6 @@ class StaticPoseTest(PeriodicOpMode):
         self._window_pv.clear()
         self._phase = Phase.MOVING
 
-    # ── NT telemetry ───────────────────────────────────────────────────
-
     def _publish_nt(self) -> None:
         sd = SmartDashboard
         sd.putBoolean("static_pose/running", True)
@@ -317,8 +270,6 @@ class StaticPoseTest(PeriodicOpMode):
         sd.putBoolean("static_pose/completed", self._done)
         if self._completed_at is not None:
             sd.putString("static_pose/completed_at", self._completed_at)
-
-    # ── CSV I/O ────────────────────────────────────────────────────────
 
     def _flush_csv(self) -> None:
         storage = (

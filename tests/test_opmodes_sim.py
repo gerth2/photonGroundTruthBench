@@ -25,7 +25,7 @@ import modes.zero_imu  # noqa: F401
 
 from robot import Robot, _registry  # noqa: E402
 from modes.calibrate_servos import CalibrateServosMode  # noqa: E402, F401
-from modes.static_pose_test import StaticPoseTest, WindowResult  # noqa: E402
+from modes.static_pose_test import StaticPoseMode, WindowResult  # noqa: E402
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ def test_profile_finished_after_convergence(robot: Robot) -> None:
 
 def test_static_pose_storage_uses_cwd_in_sim(robot: Robot) -> None:
     """_flush_csv must use cwd-relative path when RobotBase.isSimulation() is True."""
-    mode = StaticPoseTest(robot)
+    mode = StaticPoseMode(robot)
     mode._results = [
         WindowResult(
             pose_idx=0,

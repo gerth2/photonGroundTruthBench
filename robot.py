@@ -1,25 +1,5 @@
 #!/usr/bin/env python3
 
-"""Robot entry point using OpModeRobot framework.
-
-Decorator helpers:
-    @teleop(name, group)     — register a TELEOPERATED OpMode
-    @autonomous(name, group) — register an AUTONOMOUS OpMode
-    @utility(name, group)    — register a UTILITY OpMode
-
-Usage in a mode file::
-
-    from robot import utility
-    from wpilib import PeriodicOpMode
-
-    @utility("Calibrate Servos")
-    class MyMode(PeriodicOpMode):
-        def __init__(self, robot: Robot):
-            self._robot = robot
-        def start(self): ...
-        def periodic(self): ...
-"""
-
 import math
 
 from collections.abc import Callable
@@ -36,8 +16,6 @@ from config.servo_calibration_map import CalibrationMap
 from hardware import CameraPositioner, GroundTruthSensors, MPU6050, VisionProcessor
 
 
-# ── OpMode decorators ──────────────────────────────────────────────────
-
 _registry: list[tuple[type, RobotMode, str, str, str]] = []
 
 
@@ -46,8 +24,6 @@ def teleop(
     group: str = "",
     description: str = "",
 ) -> Callable[[type], type]:
-    """Decorator: register a TELEOPERATED OpMode."""
-
     def deco(cls: type) -> type:
         _registry.append(
             (cls, RobotMode.TELEOPERATED, name or cls.__name__, group, description)
@@ -62,8 +38,6 @@ def autonomous(
     group: str = "",
     description: str = "",
 ) -> Callable[[type], type]:
-    """Decorator: register an AUTONOMOUS OpMode."""
-
     def deco(cls: type) -> type:
         _registry.append(
             (cls, RobotMode.AUTONOMOUS, name or cls.__name__, group, description)
@@ -78,8 +52,6 @@ def utility(
     group: str = "",
     description: str = "",
 ) -> Callable[[type], type]:
-    """Decorator: register a UTILITY OpMode."""
-
     def deco(cls: type) -> type:
         _registry.append(
             (cls, RobotMode.UTILITY, name or cls.__name__, group, description)
@@ -89,21 +61,10 @@ def utility(
     return deco
 
 
-# ── Robot ──────────────────────────────────────────────────────────────
-
-
 class Robot(OpModeRobot):
-    """Test-bench robot.
-
-    Owns all hardware subsystems and calls their ``periodic()`` from
-    ``robotPeriodic()`` so sensors / actuators update regardless of which
-    OpMode is active.
-    """
-
     def __init__(self) -> None:
         super().__init__()  # type: ignore[no-untyped-call]
 
-        # Register opmodes FIRST so they appear even if hardware init fails.
         for cls_, mode, name, group, desc in _registry:
             self.addOpMode(cls_, mode, name, group, desc)
         self.publishOpModes()
@@ -194,8 +155,6 @@ class Robot(OpModeRobot):
         _pub("apriltag_7", cfg.cad.apriltag7_pose)
         _pub("charuco_board", cfg.cad.charuco_board_pose)
 
-
-# ── Late imports: trigger OpMode decorator registration ─────────────
 
 import modes.calibrate_servos  # noqa: E402, F401
 import modes.dynamic_sweep_test  # noqa: E402, F401

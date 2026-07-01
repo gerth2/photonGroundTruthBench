@@ -1,14 +1,3 @@
-"""Subsystem wrapping the MPU6050 + MahonyFilter.
-
-Handles IMU initialisation, non-blocking gyro-bias zeroing, and periodic
-sensor read -> filter update.  Publishes raw and filtered data to
-NetworkTables every cycle.
-
-All timing uses ``Timer.getTimestamp()`` (WPILib high-precision clock)
-rather than loop-counter assumptions so the subsystem works correctly
-regardless of actual loop rate.
-"""
-
 import wpilib
 from wpilib import Timer
 from wpimath import Rotation3d
@@ -19,13 +8,6 @@ from hardware.mpu6050 import MPU6050
 
 
 class GroundTruthSensors(Subsystem):
-    """Subsystem that owns the physical IMU and the attitude filter.
-
-    Zeroing runs as a state machine in periodic() — no blocking loops.
-    Until zeroing completes, get_euler_angles() and get_rotation() return
-    unfiltered values with the initial (zero) bias.
-    """
-
     def __init__(
         self,
         imu: MPU6050,
@@ -38,10 +20,8 @@ class GroundTruthSensors(Subsystem):
         self._imu = imu
         self._filter = MahonyFilter(kp=filter_kp, ki=filter_ki)
 
-        # Last-filter-timestamp for real elapsed-time delta.
         self._last_timestamp = Timer.getTimestamp()
 
-        # Zeroing state machine.
         self._zeroing_samples = zeroing_samples
         self._zeroing_active = False
         self._zeroing_idx = 0
@@ -51,7 +31,6 @@ class GroundTruthSensors(Subsystem):
         self._zeroed = False
         self._zero_count = 0
 
-        # Cache the last raw sensor readings for NT publishing.
         self._last_gx = 0.0
         self._last_gy = 0.0
         self._last_gz = 0.0
@@ -83,7 +62,6 @@ class GroundTruthSensors(Subsystem):
         return self._filter.get_euler_angles()
 
     def get_gyro_bias(self) -> tuple[float, float, float]:
-        """Return the current gyro bias estimate (rad/s) from the filter."""
         return self._filter.get_gyro_bias()
 
     def periodic(self) -> None:
@@ -97,7 +75,6 @@ class GroundTruthSensors(Subsystem):
         self._last_ax, self._last_ay, self._last_az = ax, ay, az
         self._filter.update(gx, gy, gz, ax, ay, az, dt)
 
-        # Non-blocking zeroing: accumulate N gyro samples to estimate bias.
         if self._zeroing_active:
             self._zeroing_sum_x += gx
             self._zeroing_sum_y += gy
@@ -117,15 +94,6 @@ class GroundTruthSensors(Subsystem):
                 self._zero_count += 1
 
         sd = wpilib.SmartDashboard
-
-        # ── NT key map (units) ─────────────────────────────────────
-        #   imu/accel_*       — m/s²
-        #   imu/gyro_*        — rad/s
-        #   imu/filtered_rpy  — rad  (roll, pitch, yaw)
-        #   imu/gyro_bias     — rad/s
-        #   imu/is_zeroed     — boolean  (True after zeroing finishes)
-        #   imu/is_zeroing    — boolean  (True while zeroing is in progress)
-        #   imu/zero_count    — int
 
         sd.putNumber("imu/accel_x", self._last_ax)
         sd.putNumber("imu/accel_y", self._last_ay)
