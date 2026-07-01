@@ -4,16 +4,18 @@ At each pose:
   1. Command the positioner to the pose.
   2. Wait for the trapezoid profile to finish (profiled == desired).
   3. Wait for the IMU to stabilise (±0.5° per axis for 1 s).
-  4. Collect a 1 s window of IMU + PhotonVision data (50 cycles).
+  4. Collect a 1 s window of IMU + PhotonVision data.
   5. Compute:
        - IMU mean roll/pitch/yaw (ground-truth camera rotation)
        - IMU roll/pitch/yaw std dev
-       - IMU sample count (always 50)
+       - IMU sample count (varies with actual loop rate)
        - PV valid-sample count
        - Per-sample error: GT⁻¹ * PV (relative transform in camera frame)
        - RMS of translation x/y/z and rotation roll/pitch/yaw over window
   6. Write row to CSV.
 
+All timing uses ``Timer.getTimestamp()`` (WPILib high-precision clock)
+— no loop-cycle counters.
 Timeout after 5 s waiting for stability so a stuck pose doesn't hang.
 """
 
@@ -30,7 +32,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 import wpilib
-from wpilib import PeriodicOpMode, SmartDashboard
+from wpilib import PeriodicOpMode, SmartDashboard, Timer
 from wpimath import Pose3d, Rotation3d, Transform3d
 
 from config.bench_config import BenchConfig
@@ -43,9 +45,9 @@ from robot import autonomous  # noqa: E402
 _RAD_PER_DEG = math.pi / 180.0
 _STABILITY_DEG = 0.5  # max per-axis range for "stable"
 _STABILITY_RAD = _STABILITY_DEG * _RAD_PER_DEG
-_STABILITY_CYCLES = 50  # 1 s at 20 ms
-_STABILITY_TIMEOUT = 250  # 5 s
-_SAMPLE_WINDOW = 50  # 1 s at 20 ms
+_STABILITY_DURATION_S = 1.0
+_STABILITY_TIMEOUT_S = 5.0
+_SAMPLE_DURATION_S = 1.0
 
 
 class Phase(Enum):
@@ -102,14 +104,12 @@ class StaticPoseTest(PeriodicOpMode):
 
         self._phase: Phase = Phase.ZEROING
         self._pose_index = 0
-        self._cycle_count = 0
+        self._phase_start_time = 0.0
         self._done = False
         self._completed_at: str | None = None
 
-        # Stability buffer (deque of (r, p, y) tuples).
-        self._stability_buf: deque[tuple[float, float, float]] = deque(
-            maxlen=_STABILITY_CYCLES
-        )
+        # Stability buffer (deque of (r, p, y, timestamp) tuples).
+        self._stability_buf: deque[tuple[float, float, float, float]] = deque()
 
         # Sampling window buffers.
         self._window_imu: list[tuple[float, float, float]] = []
@@ -123,7 +123,7 @@ class StaticPoseTest(PeriodicOpMode):
     def start(self) -> None:
         self._phase = Phase.ZEROING
         self._pose_index = 0
-        self._cycle_count = 0
+        self._phase_start_time = Timer.getTimestamp()
         self._done = False
         self._completed_at = None
         self._stability_buf.clear()
@@ -176,15 +176,20 @@ class StaticPoseTest(PeriodicOpMode):
     def _profile_wait(self) -> None:
         if self._robot.positioner.profile_finished():
             self._stability_buf.clear()
-            self._cycle_count = 0
+            self._phase_start_time = Timer.getTimestamp()
             self._phase = Phase.STABILIZING
 
     def _stabilizing(self) -> None:
+        now = Timer.getTimestamp()
         r, p, y = self._robot.sensors.get_euler_angles()
-        self._stability_buf.append((r, p, y))
-        self._cycle_count += 1
+        self._stability_buf.append((r, p, y, now))
 
-        if len(self._stability_buf) < _STABILITY_CYCLES:
+        # Purge entries older than the stability window.
+        while self._stability_buf and self._stability_buf[0][3] < now - _STABILITY_DURATION_S:
+            self._stability_buf.popleft()
+
+        elapsed = now - self._phase_start_time
+        if elapsed < _STABILITY_DURATION_S:
             return
 
         rolls = [s[0] for s in self._stability_buf]
@@ -199,17 +204,17 @@ class StaticPoseTest(PeriodicOpMode):
             self._start_sampling()
             return
 
-        if self._cycle_count >= _STABILITY_TIMEOUT:
+        if elapsed >= _STABILITY_TIMEOUT_S:
             SmartDashboard.putString(
                 "static_pose/warning",
-                f"pose {self._pose_index}: stability timeout after 5 s",
+                f"pose {self._pose_index}: stability timeout after {_STABILITY_TIMEOUT_S} s",
             )
             self._start_sampling()
 
     def _start_sampling(self) -> None:
         self._window_imu.clear()
         self._window_pv.clear()
-        self._cycle_count = 0
+        self._phase_start_time = Timer.getTimestamp()
         self._phase = Phase.SAMPLING
 
     def _sampling(self) -> None:
@@ -220,8 +225,7 @@ class StaticPoseTest(PeriodicOpMode):
         if pv_pose is not None:
             self._window_pv.append(pv_pose.estimatedPose)
 
-        self._cycle_count += 1
-        if self._cycle_count < _SAMPLE_WINDOW:
+        if Timer.getTimestamp() - self._phase_start_time < _SAMPLE_DURATION_S:
             return
 
         # Compute IMU statistics over the window.
@@ -301,7 +305,6 @@ class StaticPoseTest(PeriodicOpMode):
         self._stability_buf.clear()
         self._window_imu.clear()
         self._window_pv.clear()
-        self._cycle_count = 0
         self._phase = Phase.MOVING
 
     # ── NT telemetry ───────────────────────────────────────────────────

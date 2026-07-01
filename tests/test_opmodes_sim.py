@@ -1,4 +1,6 @@
-"""Sim-run each registered opmode for ~1 s to catch runtime crashes.
+"""Sim-run each registered opmode to catch runtime crashes.
+
+Also tests the CalibrateServos HOME phase progression.
 
 Uses raw WPILib sim APIs (not pyfrc) so it works with robotpy 2027.
 """
@@ -16,11 +18,13 @@ from wpilib.simulation import stepTiming
 sys.path.insert(0, "")
 import modes.calibrate_servos  # noqa: F401
 import modes.dynamic_sweep_test  # noqa: F401
+import modes.home_servos  # noqa: F401
 import modes.manual_control  # noqa: F401
 import modes.static_pose_test  # noqa: F401
 import modes.zero_imu  # noqa: F401
 
 from robot import Robot, _registry  # noqa: E402
+from modes.calibrate_servos import CalibrateServosMode  # noqa: E402, F401
 from modes.static_pose_test import StaticPoseTest, WindowResult  # noqa: E402
 
 
@@ -32,9 +36,9 @@ def robot() -> Robot:
     """Create the Robot once; HAL/PWM can't be re-initialised per test."""
     robot_instance = Robot()
 
-    # Sanity check: all 5 modes should be visible to the sim DS
+    # Sanity check: all 6 modes should be visible to the sim DS
     opts = wsim.DriverStationSim.getOpModeOptions()
-    assert len(opts) == 5, f"Expected 5 opmodes, got {len(opts)}"
+    assert len(opts) == 6, f"Expected 6 opmodes, got {len(opts)}"
 
     return robot_instance
 
@@ -43,7 +47,12 @@ def robot() -> Robot:
 
 
 def _run_opmode(robot: Robot, cls: type, label: str) -> None:
-    """Construct *cls*, run start + 50×periodic + end, expect no crash."""
+    """Construct *cls*, run start + stepTiming-based periodic + end.
+
+    Runtime is long enough for the slowest state machine (CalibrateServos
+    with HOME=3s + ZEROING + SLEWING=1s + SETTLING=3s + SAMPLING=1s per
+    point).
+    """
     try:
         instance = cls(robot)
     except TypeError:
@@ -51,10 +60,14 @@ def _run_opmode(robot: Robot, cls: type, label: str) -> None:
 
     instance.start()
 
-    for _ in range(50):  # 50 × 20 ms = 1 s
+    dt = 0.02
+    runtime_s = 15.0
+    n_steps = int(runtime_s / dt)  # 750 steps @ 20 ms = 15 s
+
+    for _ in range(n_steps):
         instance.periodic()
         robot.robotPeriodic()
-        stepTiming(0.02)
+        stepTiming(dt)
 
     instance.end()
 
@@ -73,12 +86,72 @@ def test_opmode_runs(robot: Robot, entry: tuple[type, str]) -> None:
     _run_opmode(robot, cls, name)
 
 
+# ── CalibrateServos HOME phase tests ───────────────────────────────
+
+
+def test_calibrate_servos_starts_in_home(robot: Robot) -> None:
+    """CalibrateServosMode must begin in HOME phase and command centre."""
+    mode = CalibrateServosMode(robot)
+    mode.start()
+    assert mode._phase.name == "HOME"
+    # Must command centre (0,0,0) n11 on all axes.
+    assert mode._robot.positioner._ff_pitch_n11 == 0.0
+    assert mode._robot.positioner._ff_yaw_n11 == 0.0
+    assert mode._robot.positioner._ff_roll_n11 == 0.0
+
+
+def test_calibrate_servos_home_settles_before_zeroing(robot: Robot) -> None:
+    """HOME phase must wait settle_duration_s before calling start_zeroing.
+
+    Because the module-scope Robot fixture may already be zeroed from a
+    previous test, we verify the transition timing rather than the sensor
+    state at start.
+
+    Note: ``periodic()`` is called *before* ``stepTiming(dt)`` in the loop,
+    so after N steps ``periodic()`` has seen ``N * dt`` seconds of elapsed
+    time (not ``(N+1) * dt``).
+    """
+    from config.bench_config import BenchConfig
+
+    dt = 0.02
+    settle_s = BenchConfig.calibration.settle_duration_s
+    mode = CalibrateServosMode(robot)
+    mode.start()
+
+    assert mode._phase.name == "HOME"
+    assert not mode._robot.sensors.is_zeroing(), (
+        "zeroing must not start during HOME"
+    )
+
+    # Run exactly settle_s / dt steps.  Each step advances the sim clock
+    # AFTER periodic() runs, so the LAST periodic() in the loop sees
+    # (steps - 1) * dt seconds = settle_s - dt seconds → still < settle_s.
+    steps = int(settle_s / dt)  # 3.0 / 0.02 = 150
+    for _ in range(steps):
+        mode.periodic()
+        stepTiming(dt)
+
+    assert mode._phase.name == "HOME", (
+        f"Expected still HOME after {steps} steps ({steps * dt:.2f} s), "
+        f"got {mode._phase.name}"
+    )
+
+    # One more periodic() sees the full settle_s elapsed → transitions.
+    mode.periodic()
+
+    assert mode._phase.name == "ZEROING", (
+        f"Expected ZEROING after settle_duration_s, got {mode._phase.name}"
+    )
+    assert mode._robot.sensors.is_zeroing(), "start_zeroing must be active"
+
+
 # ── Profile advancement tests ──────────────────────────────────────
 
 
 def test_profile_does_not_snap_on_first_call(robot: Robot) -> None:
     """set_goal_rad() + one periodic() must NOT snap profiled to goal."""
     pos = robot.positioner
+    _reset_positioner(pos)
     pos.set_goal_rad(pitch_rad=0.5, yaw_rad=0.0, roll_rad=0.0)
     pos.periodic()
     after = pos._profiled_pitch
@@ -88,11 +161,13 @@ def test_profile_does_not_snap_on_first_call(robot: Robot) -> None:
 def test_profile_advances_smoothly(robot: Robot) -> None:
     """Repeated periodic() calls advance profiled pitch toward goal."""
     pos = robot.positioner
+    _reset_positioner(pos)
     pos.set_goal_rad(pitch_rad=0.5, yaw_rad=0.0, roll_rad=0.0)
 
     samples = []
     for _ in range(200):
         pos.periodic()
+        stepTiming(0.02)
         samples.append(pos._profiled_pitch)
 
     # Monotonically increasing
@@ -124,6 +199,9 @@ def _reset_positioner(pos: object) -> None:
     pos._profiled_pitch_vel = 0.0  # type: ignore[attr-defined]
     pos._profiled_yaw_vel = 0.0  # type: ignore[attr-defined]
     pos._profiled_roll_vel = 0.0  # type: ignore[attr-defined]
+    pos._n11_slewing = False  # type: ignore[attr-defined]
+    pos._n11_slew_start = (0.0, 0.0, 0.0)  # type: ignore[attr-defined]
+    pos._n11_slew_target = (0.0, 0.0, 0.0)  # type: ignore[attr-defined]
 
 
 def test_profile_finished_no_goal(robot: Robot) -> None:
@@ -158,6 +236,7 @@ def test_profile_finished_after_convergence(robot: Robot) -> None:
 
     for _ in range(300):
         pos.periodic()
+        stepTiming(0.02)
         if pos.profile_finished():
             return
 

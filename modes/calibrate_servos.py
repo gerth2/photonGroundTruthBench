@@ -4,13 +4,18 @@ Generates a CSV of random servo commands and the corresponding IMU
 attitude readings.  The offline tool scripts/download_calibration.py
 fits the inverse map from this file.
 
+All timing uses ``Timer.getTimestamp()`` (WPILib high-precision clock)
+— no loop-cycle counters.
+
 State machine in periodic():
-  1. ZEROING  — start sensor bias estimation
-  2. MOVING   — command a random servo triplet via set_raw_n11()
-  3. SETTLING — wait N cycles for mechanical settling
-  4. SAMPLING — accumulate M IMU readings
-  5. RECORD   — write average to CSV buffer, advance to next point
-  6. DONE     — all points collected, write CSV
+  1. HOME     — command center position, wait N s for settling
+  2. ZEROING  — start gyro bias estimation (at repeatable mechanical zero)
+  3. MOVING   — pick next random triplet, call positioner.set_target_n11()
+  4. SLEWING  — wait for positioner.n11_slew_finished()
+  5. SETTLING — wait N s for mechanical settling
+  6. SAMPLING — accumulate IMU readings for K s
+  7. RECORD   — average buffer to CSV, advance to next point
+  8. DONE     — all points collected, write CSV
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 import wpilib
-from wpilib import PeriodicOpMode
+from wpilib import PeriodicOpMode, Timer
 from wpimath import Rotation3d
 
 from config.bench_config import BenchConfig
@@ -35,8 +40,10 @@ from robot import utility  # noqa: E402 — runtime decorator
 
 
 class Phase(Enum):
+    HOME = auto()
     ZEROING = auto()
     MOVING = auto()
+    SLEWING = auto()
     SETTLING = auto()
     SAMPLING = auto()
     RECORD = auto()
@@ -51,13 +58,14 @@ class CalibrateServosMode(PeriodicOpMode):
 
         cfg = BenchConfig.calibration
         self._num_points = cfg.num_points
-        self._settle_cycles = cfg.settle_cycles
-        self._samples_per_point = cfg.samples_per_point
+        self._slew_duration_s = cfg.slew_duration_s
+        self._settle_duration_s = cfg.settle_duration_s
+        self._sample_duration_s = cfg.sample_duration_s
         self._storage_path = cfg.storage_path
 
-        self._phase: Phase = Phase.ZEROING
+        self._phase: Phase = Phase.HOME
         self._point_index = 0
-        self._cycle_count = 0
+        self._phase_start_time = 0.0
         self._points: list[tuple[float, float, float]] = []
         self._sample_buffer: list[Rotation3d] = []
         self._results: list[tuple[float, float, float, float, float, float]] = []
@@ -66,7 +74,6 @@ class CalibrateServosMode(PeriodicOpMode):
     def start(self) -> None:
         self._robot.positioner.disable_feedback()
         self._point_index = 0
-        self._cycle_count = 0
         self._sample_buffer = []
         self._results = []
 
@@ -81,10 +88,21 @@ class CalibrateServosMode(PeriodicOpMode):
             for _ in range(self._num_points)
         ]
 
-        self._phase = Phase.ZEROING
-        self._robot.sensors.start_zeroing()
+        # Home the positioner before zeroing so we sample bias at a
+        # repeatable mechanical zero.
+        self._robot.positioner.set_raw_n11(0.0, 0.0, 0.0)
+        self._phase = Phase.HOME
+        self._phase_start_time = Timer.getTimestamp()
 
     def periodic(self) -> None:
+        now = Timer.getTimestamp()
+
+        if self._phase is Phase.HOME:
+            if now - self._phase_start_time >= self._settle_duration_s:
+                self._phase = Phase.ZEROING
+                self._robot.sensors.start_zeroing()
+            return
+
         if self._phase is Phase.ZEROING:
             if self._robot.sensors.is_zeroed():
                 self._phase = Phase.MOVING
@@ -99,21 +117,26 @@ class CalibrateServosMode(PeriodicOpMode):
         sr, sp, sy = self._points[self._point_index]
 
         if self._phase is Phase.MOVING:
-            self._robot.positioner.set_raw_n11(sp, sy, sr)
-            self._phase = Phase.SETTLING
-            self._cycle_count = 0
+            self._robot.positioner.set_target_n11(
+                sp, sy, sr, self._slew_duration_s
+            )
+            self._phase = Phase.SLEWING
+            self._phase_start_time = now
+
+        elif self._phase is Phase.SLEWING:
+            if self._robot.positioner.n11_slew_finished():
+                self._phase = Phase.SETTLING
+                self._phase_start_time = now
 
         elif self._phase is Phase.SETTLING:
-            self._cycle_count += 1
-            if self._cycle_count >= self._settle_cycles:
+            if now - self._phase_start_time >= self._settle_duration_s:
                 self._phase = Phase.SAMPLING
-                self._cycle_count = 0
+                self._phase_start_time = now
                 self._sample_buffer = []
 
         elif self._phase is Phase.SAMPLING:
             self._sample_buffer.append(self._robot.sensors.get_rotation())
-            self._cycle_count += 1
-            if self._cycle_count >= self._samples_per_point:
+            if now - self._phase_start_time >= self._sample_duration_s:
                 self._phase = Phase.RECORD
 
         elif self._phase is Phase.RECORD:
@@ -125,6 +148,7 @@ class CalibrateServosMode(PeriodicOpMode):
             self._results.append((sr, sp, sy, roll_rad, pitch_rad, yaw_rad))
             self._point_index += 1
             self._phase = Phase.MOVING
+            self._phase_start_time = now
 
     def end(self) -> None:
         if self._completed and self._results:

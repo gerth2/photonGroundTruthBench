@@ -3,9 +3,14 @@
 Handles IMU initialisation, non-blocking gyro-bias zeroing, and periodic
 sensor read -> filter update.  Publishes raw and filtered data to
 NetworkTables every cycle.
+
+All timing uses ``Timer.getTimestamp()`` (WPILib high-precision clock)
+rather than loop-counter assumptions so the subsystem works correctly
+regardless of actual loop rate.
 """
 
 import wpilib
+from wpilib import Timer
 from wpimath import Rotation3d
 
 from utilities.imu_filter import MahonyFilter
@@ -32,6 +37,9 @@ class GroundTruthSensors(Subsystem):
 
         self._imu = imu
         self._filter = MahonyFilter(kp=filter_kp, ki=filter_ki)
+
+        # Last-filter-timestamp for real elapsed-time delta.
+        self._last_timestamp = Timer.getTimestamp()
 
         # Zeroing state machine.
         self._zeroing_samples = zeroing_samples
@@ -62,6 +70,9 @@ class GroundTruthSensors(Subsystem):
     def is_zeroed(self) -> bool:
         return self._zeroed
 
+    def is_zeroing(self) -> bool:
+        return self._zeroing_active
+
     def get_zero_count(self) -> int:
         return self._zero_count
 
@@ -76,11 +87,15 @@ class GroundTruthSensors(Subsystem):
         return self._filter.get_gyro_bias()
 
     def periodic(self) -> None:
+        now = Timer.getTimestamp()
+        dt = now - self._last_timestamp
+        self._last_timestamp = now
+
         gx, gy, gz = self._imu.read_gyro_radps()
         ax, ay, az = self._imu.read_accel_mps2()
         self._last_gx, self._last_gy, self._last_gz = gx, gy, gz
         self._last_ax, self._last_ay, self._last_az = ax, ay, az
-        self._filter.update(gx, gy, gz, ax, ay, az, 0.02)
+        self._filter.update(gx, gy, gz, ax, ay, az, dt)
 
         # Non-blocking zeroing: accumulate N gyro samples to estimate bias.
         if self._zeroing_active:

@@ -2,6 +2,7 @@
 name = "photon-ground-truth-bench"
 version = "0.1.0"
 description = "FRC camera ground-truth calibration bench"
+requires-python = ">=3.13"
 
 [tool.robotpy]
 robotpy_version = "2027.0.0a6.post1"
