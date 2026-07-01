@@ -7,11 +7,25 @@ zeroed and a goal has been commanded via set_goal_rad().  Each axis
 has a 1-D trapezoidal motion profile (TrapezoidProfile) that smooths
 step inputs — the profile output, not the raw goal, is used as the
 feedforward setpoint in the PI loop.
+
+**N11 soft limits**: each axis has ``_min`` / ``_max`` that clamp every
+N11 value before it reaches PWM.  The N11 space is always [-1, 1] in
+full servo range, but the soft limits restrict to the mechanism-safe
+window.
+
+**RPY → N11**: the only conversion path is ``CalibrationMap.inverse()``.
+If no calibration map is loaded, ``set_goal_rad()`` still runs the
+profile + PI but uses the current (or centre) N11 as feedforward — the
+PI loop must converge from there.
+
+**N11 → PWM**: ``_n11_to_pulse()`` maps N11 [-1, 1] to 1000…2000 µs
+linearly, with a safety clamp to [-1, 1] at the static method level.
+The soft-limit clamp is applied at every API entry point before values
+are stored.
 """
 
-import math
-
 import wpilib
+from wpilib import Timer
 from wpimath import TrapezoidProfile
 
 from config.servo_calibration_map import CalibrationMap
@@ -28,17 +42,14 @@ class CameraPositioner(Subsystem):
         pitch_center: float,
         pitch_min: float,
         pitch_max: float,
-        pitch_range_deg: tuple[float, float],
         yaw_center: float,
         yaw_min: float,
         yaw_max: float,
-        yaw_range_deg: tuple[float, float],
         roll_center: float,
         roll_min: float,
         roll_max: float,
-        roll_range_deg: tuple[float, float],
         sensors: GroundTruthSensors,
-        calibration_map: type[CalibrationMap] | None = None,
+        calibration_map: type[CalibrationMap] = CalibrationMap,
         pitch_kp: float = 0.0,
         pitch_ki: float = 0.0,
         yaw_kp: float = 0.0,
@@ -63,6 +74,8 @@ class CameraPositioner(Subsystem):
         self._sensors = sensors
         self._cal = calibration_map
 
+        self._last_timestamp = Timer.getTimestamp()
+
         self._pitch_kp = pitch_kp
         self._pitch_ki = pitch_ki
         self._yaw_kp = yaw_kp
@@ -75,17 +88,14 @@ class CameraPositioner(Subsystem):
         self._pitch_center = pitch_center
         self._pitch_min = pitch_min
         self._pitch_max = pitch_max
-        self._pitch_range = pitch_range_deg
 
         self._yaw_center = yaw_center
         self._yaw_min = yaw_min
         self._yaw_max = yaw_max
-        self._yaw_range = yaw_range_deg
 
         self._roll_center = roll_center
         self._roll_min = roll_min
         self._roll_max = roll_max
-        self._roll_range = roll_range_deg
 
         self._p_profile = TrapezoidProfile(
             TrapezoidProfile.Constraints(pitch_max_velocity, pitch_max_acceleration)
@@ -117,74 +127,86 @@ class CameraPositioner(Subsystem):
         self._integral_roll = 0.0
         self._feedback_enabled = True
 
+        # N11 linear slew state (takes priority over profiled mode)
+        self._n11_slewing: bool = False
+        self._n11_slew_start: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._n11_slew_target: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._n11_slew_start_time: float = 0.0
+        self._n11_slew_duration: float = 1.0
+
     @staticmethod
-    def _angle_to_n11(
-        angle_deg: float,
-        center: float,
-        lo: float,
-        hi: float,
-        range_deg: tuple[float, float],
-    ) -> float:
-        if angle_deg >= 0.0:
-            frac = angle_deg / range_deg[1] if range_deg[1] != 0.0 else 0.0
-            return center + frac * (hi - center)
-        else:
-            frac = angle_deg / range_deg[0] if range_deg[0] != 0.0 else 0.0
-            return center + frac * (center - lo)
+    def _clamp_n11(v: float, lo: float, hi: float) -> float:
+        return max(lo, min(hi, v))
 
     def set_goal_rad(self, pitch_rad: float, yaw_rad: float, roll_rad: float) -> None:
         self._desired_pitch = pitch_rad
         self._desired_yaw = yaw_rad
         self._desired_roll = roll_rad
 
-        # _profiled_* are NOT reset to the goal — the trapezoid profile
-        # will smoothly advance from wherever the setpoint currently is.
         self._integral_pitch = 0.0
         self._integral_yaw = 0.0
         self._integral_roll = 0.0
+        self._last_timestamp = Timer.getTimestamp()
+        self._n11_slewing = False
 
-        if self._cal is not None and hasattr(self._cal, "INVERSE_COEFFS_SERVO_R"):
-            sr, sp, sy = self._cal.inverse(pitch_rad, yaw_rad, roll_rad)
-            self._ff_pitch_n11 = float(sp)
-            self._ff_yaw_n11 = float(sy)
-            self._ff_roll_n11 = float(sr)
-        else:
-            pitch_deg = math.degrees(pitch_rad)
-            yaw_deg = math.degrees(yaw_rad)
-            roll_deg = math.degrees(roll_rad)
-
-            self._ff_pitch_n11 = CameraPositioner._angle_to_n11(
-                pitch_deg,
-                self._pitch_center,
-                self._pitch_min,
-                self._pitch_max,
-                self._pitch_range,
-            )
-            self._ff_yaw_n11 = CameraPositioner._angle_to_n11(
-                yaw_deg,
-                self._yaw_center,
-                self._yaw_min,
-                self._yaw_max,
-                self._yaw_range,
-            )
-            self._ff_roll_n11 = CameraPositioner._angle_to_n11(
-                roll_deg,
-                self._roll_center,
-                self._roll_min,
-                self._roll_max,
-                self._roll_range,
-            )
+        sr, sp, sy = self._cal.inverse(pitch_rad, yaw_rad, roll_rad)
+        self._ff_pitch_n11 = CameraPositioner._clamp_n11(
+            float(sp), self._pitch_min, self._pitch_max
+        )
+        self._ff_yaw_n11 = CameraPositioner._clamp_n11(
+            float(sy), self._yaw_min, self._yaw_max
+        )
+        self._ff_roll_n11 = CameraPositioner._clamp_n11(
+            float(sr), self._roll_min, self._roll_max
+        )
 
     def set_raw_n11(self, pitch: float, yaw: float, roll: float) -> None:
-        self._ff_pitch_n11 = float(pitch)
-        self._ff_yaw_n11 = float(yaw)
-        self._ff_roll_n11 = float(roll)
+        self._ff_pitch_n11 = CameraPositioner._clamp_n11(
+            float(pitch), self._pitch_min, self._pitch_max
+        )
+        self._ff_yaw_n11 = CameraPositioner._clamp_n11(
+            float(yaw), self._yaw_min, self._yaw_max
+        )
+        self._ff_roll_n11 = CameraPositioner._clamp_n11(
+            float(roll), self._roll_min, self._roll_max
+        )
         self._desired_pitch = None
         self._desired_yaw = None
         self._desired_roll = None
         self._integral_pitch = 0.0
         self._integral_yaw = 0.0
         self._integral_roll = 0.0
+        self._n11_slewing = False
+
+    def set_target_n11(
+        self, pitch: float, yaw: float, roll: float, duration_s: float = 1.0
+    ) -> None:
+        """Command a linear n11 slew from the current position to *target*.
+
+        The positioner interpolates linearly in n11 space over
+        *duration_s* seconds.  Any active profiled RPY goal is cancelled.
+        The target is clamped to per-axis soft limits.
+        """
+        self._desired_pitch = None
+        self._desired_yaw = None
+        self._desired_roll = None
+        self._integral_pitch = 0.0
+        self._integral_yaw = 0.0
+        self._integral_roll = 0.0
+
+        cp, cy, cr = self.get_current_n11()
+        self._n11_slew_start = (cp, cy, cr)
+        self._n11_slew_target = (
+            CameraPositioner._clamp_n11(float(pitch), self._pitch_min, self._pitch_max),
+            CameraPositioner._clamp_n11(float(yaw), self._yaw_min, self._yaw_max),
+            CameraPositioner._clamp_n11(float(roll), self._roll_min, self._roll_max),
+        )
+        self._n11_slew_start_time = Timer.getTimestamp()
+        self._n11_slew_duration = max(duration_s, 0.001)
+        self._n11_slewing = True
+
+    def n11_slew_finished(self) -> bool:
+        return not self._n11_slewing
 
     def profile_finished(self) -> bool:
         if (
@@ -226,6 +248,17 @@ class CameraPositioner(Subsystem):
     def enable_feedback(self) -> None:
         self._feedback_enabled = True
 
+    def get_current_n11(self) -> tuple[float, float, float]:
+        """Return the last commanded n11 (pitch, yaw, roll).
+
+        Returns (0,0,0) if nothing has been commanded yet.
+        """
+        return (
+            self._ff_pitch_n11 if self._ff_pitch_n11 is not None else 0.0,
+            self._ff_yaw_n11 if self._ff_yaw_n11 is not None else 0.0,
+            self._ff_roll_n11 if self._ff_roll_n11 is not None else 0.0,
+        )
+
     def disable_feedback(self) -> None:
         self._feedback_enabled = False
         self._integral_pitch = 0.0
@@ -251,12 +284,32 @@ class CameraPositioner(Subsystem):
             self._publish_telemetry(pitch_cmd, yaw_cmd, roll_cmd, err_p, err_y, err_r)
             return
 
-        if (
+        # N11 linear slew — takes priority over profiled RPY mode.
+        if self._n11_slewing:
+            now = Timer.getTimestamp()
+            elapsed = now - self._n11_slew_start_time
+            frac = min(elapsed / self._n11_slew_duration, 1.0)
+
+            p0, y0, r0 = self._n11_slew_start
+            p1, y1, r1 = self._n11_slew_target
+            self._ff_pitch_n11 = p0 + frac * (p1 - p0)
+            self._ff_yaw_n11 = y0 + frac * (y1 - y0)
+            self._ff_roll_n11 = r0 + frac * (r1 - r0)
+            pitch_cmd = self._ff_pitch_n11
+            yaw_cmd = self._ff_yaw_n11
+            roll_cmd = self._ff_roll_n11
+
+            if frac >= 1.0:
+                self._n11_slewing = False
+
+        elif (
             self._desired_pitch is not None
             and self._desired_yaw is not None
             and self._desired_roll is not None
         ):
-            dt = 0.02  # loop period, rad — profile advances by dt each cycle
+            now = Timer.getTimestamp()
+            dt = now - self._last_timestamp
+            self._last_timestamp = now
 
             pitch_goal = TrapezoidProfile.State(self._desired_pitch, 0.0)
             yaw_goal = TrapezoidProfile.State(self._desired_yaw, 0.0)
@@ -310,6 +363,16 @@ class CameraPositioner(Subsystem):
             pitch_cmd += self._pitch_kp * err_p + self._pitch_ki * self._integral_pitch
             yaw_cmd += self._yaw_kp * err_y + self._yaw_ki * self._integral_yaw
             roll_cmd += self._roll_kp * err_r + self._roll_ki * self._integral_roll
+
+        pitch_cmd = CameraPositioner._clamp_n11(
+            pitch_cmd, self._pitch_min, self._pitch_max
+        )
+        yaw_cmd = CameraPositioner._clamp_n11(
+            yaw_cmd, self._yaw_min, self._yaw_max
+        )
+        roll_cmd = CameraPositioner._clamp_n11(
+            roll_cmd, self._roll_min, self._roll_max
+        )
 
         self._pitch_servo.setPulseTime(CameraPositioner._n11_to_pulse(pitch_cmd))
         self._yaw_servo.setPulseTime(CameraPositioner._n11_to_pulse(yaw_cmd))

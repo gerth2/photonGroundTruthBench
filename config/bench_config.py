@@ -11,27 +11,29 @@ from wpimath import Pose3d, Rotation3d, Transform3d, Translation3d
 
 
 class PositionerConfig:
-    """PWM channels and angle-to-servo-ratio mapping per axis."""
+    """PWM channels and N11 soft-limit configuration per axis.
+
+    ``center`` is the N11 value for mechanical centre (0 N11 when no
+    calibration map is present).  ``min`` / ``max`` define the mechanism-
+    safe soft limits within the servo's full [-1, 1] N11 range.
+    """
 
     pitch_servo_channel: int = 0
     yaw_servo_channel: int = 1
     roll_servo_channel: int = 2
 
-    # Servo output in -1..1 space (raw, before calibration map).
+    # Servo output in -1..1 space.
     pitch_center: float = 0.0
     pitch_min: float = -0.8
     pitch_max: float = 0.8
-    pitch_range_deg: tuple[float, float] = (-90.0, 90.0)
 
     yaw_center: float = 0.0
     yaw_min: float = -0.8
     yaw_max: float = 0.8
-    yaw_range_deg: tuple[float, float] = (-90.0, 90.0)
 
     roll_center: float = 0.0
     roll_min: float = -0.8
     roll_max: float = 0.8
-    roll_range_deg: tuple[float, float] = (-90.0, 90.0)
 
 
 class IMUConfig:
@@ -124,11 +126,16 @@ class ProfileConfig:
 
 
 class CalibrationConfig:
-    """Sweep parameters for the open-loop CalibrateServos command."""
+    """Sweep parameters for the open-loop CalibrateServos command.
+
+    Durations in seconds — compared against ``Timer.getTimestamp()``
+    so timing is independent of actual loop rate.
+    """
 
     num_points: int = 100
-    settle_cycles: int = 50  # 20 ms cycles → 1 s settling
-    samples_per_point: int = 10
+    slew_duration_s: float = 1.0  # seconds to linearly ramp n11 between points
+    settle_duration_s: float = 3.0  # seconds of mechanical settling after slew
+    sample_duration_s: float = 1.0  # seconds to accumulate IMU readings
     storage_path: str = "/home/lvuser/calibration_data"
 
 
@@ -158,8 +165,8 @@ class ValidationConfig:
         (7,),
         (6,),
     ]
-    static_settle_cycles: int = 100  # 2 s
-    static_samples_per_pose: int = 10
+    static_settle_duration_s: float = 3.0
+    static_sample_duration_s: float = 1.0
 
     # ── Output storage ────────────────────────────────────────────────
     # Test results (AUTONOMOUS modes — static pose, dynamic sweep).
@@ -169,7 +176,7 @@ class ValidationConfig:
     # For each axis run a sinusoid at each listed peak velocity (deg/s).
     sweep_velocity_steps_degps: list[float] = [5.0, 10.0, 20.0, 40.0]
     sweep_amplitude_deg: float = 20.0
-    sweep_cycles_per_step: int = 3
+    sweep_duration_s_per_step: float = 6.0
 
 
 class BenchConfig:

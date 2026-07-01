@@ -128,12 +128,7 @@ class Robot(OpModeRobot):
             zeroing_samples=ic.zeroing_samples,
         )
 
-        cal_map = (
-            CalibrationMap
-            if hasattr(CalibrationMap, "INVERSE_COEFFS_SERVO_R")
-            and CalibrationMap.INVERSE_COEFFS_SERVO_R
-            else None
-        )
+        cal_map = CalibrationMap
 
         self.positioner = CameraPositioner(
             pitch_channel=pc.pitch_servo_channel,
@@ -142,15 +137,12 @@ class Robot(OpModeRobot):
             pitch_center=pc.pitch_center,
             pitch_min=pc.pitch_min,
             pitch_max=pc.pitch_max,
-            pitch_range_deg=pc.pitch_range_deg,
             yaw_center=pc.yaw_center,
             yaw_min=pc.yaw_min,
             yaw_max=pc.yaw_max,
-            yaw_range_deg=pc.yaw_range_deg,
             roll_center=pc.roll_center,
             roll_min=pc.roll_min,
             roll_max=pc.roll_max,
-            roll_range_deg=pc.roll_range_deg,
             sensors=self.sensors,
             calibration_map=cal_map,
             pitch_kp=pid.pitch_kp,
