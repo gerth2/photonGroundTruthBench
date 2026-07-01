@@ -10,12 +10,10 @@ import math
 
 from collections.abc import Callable
 
-import wpilib
+import ntcore
 from hal import RobotMode
-from photonlibpy.photonPoseEstimator import PhotonPoseEstimator
-from robotpy_apriltag import AprilTagFieldLayout
 from wpilib import OpModeRobot
-from wpimath import Pose3d, Transform3d
+from wpimath import Pose3d
 
 from config.bench_config import BenchConfig
 from config.servo_calibration_map import CalibrationMap
@@ -146,6 +144,7 @@ class Robot(OpModeRobot):
 
         self.sensors = GroundTruthSensors(
             imu=imu,
+            imu_translation=cfg.cad.camera_to_imu.translation(),
             filter_kp=ic.filter_kp,
             filter_ki=ic.filter_ki,
             zeroing_samples=ic.zeroing_samples,
@@ -168,6 +167,7 @@ class Robot(OpModeRobot):
             roll_max=pc.roll_max,
             sensors=self.sensors,
             calibration_map=cal_map,
+            camera_translation=cfg.cad.camera_pose_in_bench.translation(),
             pitch_kp=pid.pitch_kp,
             pitch_ki=pid.pitch_ki,
             yaw_kp=pid.yaw_kp,
@@ -184,47 +184,39 @@ class Robot(OpModeRobot):
             roll_max_acceleration=math.radians(prc.roll_max_acceleration_degps2),
         )
 
-        field_layout = AprilTagFieldLayout()
         self.vision = VisionProcessor(
             camera_name="ground_truth_cam",
-            pose_estimator=PhotonPoseEstimator(
-                fieldTags=field_layout,
-                robotToCamera=Transform3d(),
-            ),
-            camera_to_robot=Transform3d(),
+            bench_tag_poses={
+                cfg.cad.left_tag_id: cfg.cad.left_tag_pose,
+                cfg.cad.right_tag_id: cfg.cad.right_tag_pose,
+            },
         )
 
-        self._publish_static_targets(cfg)
+        self._init_publishers(cfg)
+
+    def _init_publishers(self, cfg: type[BenchConfig]) -> None:
+        """Create struct-topic publishers for fixed targets and camera poses."""
+        inst = ntcore.NetworkTableInstance.getDefault()
+        table = inst.getTable("targets")
+
+        def _pose_pub(path: str) -> ntcore.StructPublisher:
+            """Return a Pose3d struct publisher at ``table/path``."""
+            topic = table.getStructTopic(path, Pose3d)
+            return topic.publish()
+
+        self._pub_target_left = _pose_pub("left_tag")
+        self._pub_target_right = _pose_pub("right_tag")
+        self._pub_charuco = _pose_pub("charuco_board")
+
+        self._pub_target_left.set(cfg.cad.left_tag_pose)
+        self._pub_target_right.set(cfg.cad.right_tag_pose)
+        self._pub_charuco.set(cfg.cad.charuco_board_pose)
 
     def robotPeriodic(self) -> None:
         """Advance all hardware subsystems by one 20 ms cycle."""
         self.sensors.periodic()
         self.positioner.periodic()
         self.vision.periodic()
-
-    @staticmethod
-    def _publish_static_targets(cfg: type[BenchConfig]) -> None:
-        """Write known calibration-target poses to SmartDashboard.
-
-        Parameters
-        ----------
-        cfg : type[BenchConfig]
-            Configuration class containing CAD pose constants.
-        """
-        sd = wpilib.SmartDashboard
-
-        def _pub(label: str, pose: Pose3d) -> None:
-            """Write a single target's translation and rotation to SmartDashboard."""
-            t = pose.translation()
-            r = pose.rotation()
-            sd.putNumberArray(
-                f"targets/{label}",
-                [t.X(), t.Y(), t.Z(), r.X(), r.Y(), r.Z()],
-            )
-
-        _pub("left_tag", cfg.cad.left_tag_pose)
-        _pub("right_tag", cfg.cad.right_tag_pose)
-        _pub("charuco_board", cfg.cad.charuco_board_pose)
 
 
 import modes.calibrate_servos  # noqa: E402, F401

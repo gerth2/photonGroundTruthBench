@@ -179,6 +179,53 @@ Key files:
 - `config/servo_calibration_map.py` — auto-generated CalibrationMap class
 - `config/bench_config.py` — `PIDConfig` (gains per axis), `CalibrationConfig` (sweep params, storage path)
 
+## Measurement standard
+
+The bench evaluates PhotonVision's per-tag camera-pose accuracy by comparing
+each detected tag's implied camera pose against a ground-truth camera pose.
+
+### Ground-truth (expected) camera pose
+
+```
+expected_pose = Pose3d(
+    translation = camera_pose_in_bench.translation()   # from CAD
+    rotation    = Rotation3d(roll_imu, pitch_imu, yaw_imu)  # from Mahony filter
+)
+```
+
+The IMU provides the camera's orientation; the CAD model provides the camera's
+translation relative to the bench origin.
+
+### PhotonVision camera pose (per tag)
+
+For each visible bench tag (IDs 6 = left, 7 = right), PhotonVision reports a
+``cameraToTarget`` transform.  The camera pose implied by that detection is:
+
+```
+pv_camera_pose = tag_pose * inverse(cameraToTarget)
+```
+
+where ``tag_pose`` is the known bench-frame pose of that tag from CAD.
+
+### Error computed per tag detection
+
+For every tag-based camera-pose sample in a measurement window:
+
+```
+error = Transform3d(expected_pose, pv_camera_pose)
+```
+
+produces a 6-DOF residual (dx, dy, dz, droll, dpitch, dyaw).  The per-pose
+CSV row reports the RMS of each axis across all tag detections in the window.
+
+### Tag vocabulary
+
+Only tags 6 (left) and 7 (right) are bench tags.  All other tag IDs are
+ignored.  The mapping is hardcoded in ``CADConstants``:
+
+- ``left_tag_id = 6``, ``right_tag_id = 7``
+- ``left_tag_pose`` / ``right_tag_pose`` — bench-frame Pose3d from CAD
+
 ## Hardware — coordinate system & CAD constants
 
 Bench coordinate system defined in `config/bench_config.py`:
@@ -192,4 +239,3 @@ Update `CADConstants` class when CAD changes:
 - `camera_to_imu` — `Transform3d` from camera reference to IMU chip.
 - `camera_focal_point_offset` — `Translation3d` from camera ref to lens focal point.
 - `left_tag_pose`, `right_tag_pose`, `charuco_board_pose` — fixed `Pose3d` in bench frame.
-- `left_tag_id` (6), `right_tag_id` (7) — fiducial IDs for the two bench tags.

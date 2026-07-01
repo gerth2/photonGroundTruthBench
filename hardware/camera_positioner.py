@@ -5,9 +5,10 @@ linear N11 slew) and a raw bypass for homing.  All state machines advance in
 ``periodic()`` — no blocking calls.
 """
 
+import ntcore
 import wpilib
 from wpilib import Timer
-from wpimath import TrapezoidProfile
+from wpimath import Pose3d, Rotation3d, Translation3d, TrapezoidProfile
 
 from config.servo_calibration_map import CalibrationMap
 from core.subsystem import Subsystem
@@ -40,6 +41,7 @@ class CameraPositioner(Subsystem):
         roll_max: float,
         sensors: GroundTruthSensors,
         calibration_map: type[CalibrationMap] = CalibrationMap,
+        camera_translation: Translation3d = Translation3d(),
         pitch_kp: float = 0.0,
         pitch_ki: float = 0.0,
         yaw_kp: float = 0.0,
@@ -72,6 +74,7 @@ class CameraPositioner(Subsystem):
             roll_max: N11 soft upper limit for roll.
             sensors: Ground-truth sensor instance used for feedback.
             calibration_map: CalibrationMap class for RPY-to-N11 conversion.
+            camera_translation: Bench-frame camera translation (from CAD).
             pitch_kp: Proportional gain for pitch feedback.
             pitch_ki: Integral gain for pitch feedback.
             yaw_kp: Proportional gain for yaw feedback.
@@ -152,6 +155,13 @@ class CameraPositioner(Subsystem):
         self._n11_slew_target: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._n11_slew_start_time: float = 0.0
         self._n11_slew_duration: float = 1.0
+
+        self._camera_translation = camera_translation
+
+        inst = ntcore.NetworkTableInstance.getDefault()
+        pt = inst.getTable("positioner")
+        self._pub_goal_pose = pt.getStructTopic("goal_pose", Pose3d).publish()
+        self._pub_profiled_pose = pt.getStructTopic("profiled_pose", Pose3d).publish()
 
     @staticmethod
     def _clamp_n11(v: float, lo: float, hi: float) -> float:
@@ -436,6 +446,21 @@ class CameraPositioner(Subsystem):
         self._roll_servo.setPulseTime(CameraPositioner._n11_to_pulse(roll_cmd))
 
         self._publish_telemetry(pitch_cmd, yaw_cmd, roll_cmd, err_p, err_y, err_r)
+
+        dp = self._desired_pitch
+        dy = self._desired_yaw
+        dr = self._desired_roll
+        if dp is not None and dy is not None and dr is not None:
+            goal_pose = Pose3d(
+                self._camera_translation, Rotation3d(dr, dp, dy)
+            )
+            self._pub_goal_pose.set(goal_pose)
+
+        profiled_pose = Pose3d(
+            self._camera_translation,
+            Rotation3d(self._profiled_roll, self._profiled_pitch, self._profiled_yaw),
+        )
+        self._pub_profiled_pose.set(profiled_pose)
 
     def _publish_telemetry(
         self,

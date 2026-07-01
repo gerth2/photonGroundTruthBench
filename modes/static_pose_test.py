@@ -13,6 +13,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import ntcore
 import wpilib
 from wpilib import PeriodicOpMode, SmartDashboard, Timer
 from wpimath import Pose3d, Rotation3d, Transform3d
@@ -95,8 +96,13 @@ class StaticPoseMode(PeriodicOpMode):
 
         self._stability_buf: deque[tuple[float, float, float, float]] = deque()
         self._window_imu: list[tuple[float, float, float]] = []
-        self._window_pv: list[Pose3d] = []
+        self._window_pv: list[tuple[int, Pose3d]] = []
         self._results: list[WindowResult] = []
+
+        inst = ntcore.NetworkTableInstance.getDefault()
+        st = inst.getTable("static_pose")
+        self._pub_gt_pose = st.getStructTopic("ground_truth_pose", Pose3d).publish()
+        self._pub_pv_pose = st.getStructTopic("pv_camera_pose", Pose3d).publish()
 
     def start(self) -> None:
         """Reset all state and begin IMU zeroing."""
@@ -203,13 +209,19 @@ class StaticPoseMode(PeriodicOpMode):
 
     def _sampling(self) -> None:
         """Collect IMU and PhotonVision samples for the configured duration,
-        then compute RMS errors."""
+        then compute RMS errors.
+
+        For each cycle, accumulates IMU euler angles and per-tag camera-pose
+        estimates from PhotonVision.  At window end, computes the ground-truth
+        camera pose (IMU mean + CAD translation) and RMS error vs every tag-
+        based PV camera pose recorded in the window.
+        """
         imu_r, imu_p, imu_y = self._robot.sensors.get_euler_angles()
         self._window_imu.append((imu_r, imu_p, imu_y))
 
-        pv_pose = self._robot.vision.get_latest_pose()
-        if pv_pose is not None:
-            self._window_pv.append(pv_pose.estimatedPose)
+        tag_cam_poses = self._robot.vision.get_tag_camera_poses()
+        for tag_id, cam_pose in tag_cam_poses.items():
+            self._window_pv.append((tag_id, cam_pose))
 
         if Timer.getTimestamp() - self._phase_start_time < _SAMPLE_DURATION_S:
             return
@@ -233,6 +245,7 @@ class StaticPoseMode(PeriodicOpMode):
             self._camera_translation,
             Rotation3d(imu_mean[0], imu_mean[1], imu_mean[2]),
         )
+        self._pub_gt_pose.set(gt_pose)
 
         err_xs: list[float] = []
         err_ys: list[float] = []
@@ -241,8 +254,8 @@ class StaticPoseMode(PeriodicOpMode):
         err_ps: list[float] = []
         err_ys_list: list[float] = []
 
-        for pv in self._window_pv:
-            err_tf = Transform3d(gt_pose, pv)
+        for _tag_id, pv_pose in self._window_pv:
+            err_tf = Transform3d(gt_pose, pv_pose)
             t = err_tf.translation()
             r = err_tf.rotation()
             err_xs.append(t.X())
@@ -321,7 +334,7 @@ class StaticPoseMode(PeriodicOpMode):
                     "cmd_pitch (rad)",
                     "cmd_yaw (rad)",
                     "imu_count",
-                    "pv_count",
+                    "pv_tag_detections",
                     "imu_mean_roll (rad)",
                     "imu_mean_pitch (rad)",
                     "imu_mean_yaw (rad)",

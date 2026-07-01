@@ -1,8 +1,9 @@
 """MPU6050-based IMU ground-truth sensor with Mahony filter and on-line zeroing."""
 
+import ntcore
 import wpilib
 from wpilib import Timer
-from wpimath import Rotation3d
+from wpimath import Pose3d, Rotation3d, Translation3d
 
 from utilities.imu_filter import MahonyFilter
 from core.subsystem import Subsystem
@@ -21,6 +22,7 @@ class GroundTruthSensors(Subsystem):
     def __init__(
         self,
         imu: MPU6050,
+        imu_translation: Translation3d = Translation3d(),
         filter_kp: float = 0.5,
         filter_ki: float = 0.0,
         zeroing_samples: int = 100,
@@ -29,6 +31,7 @@ class GroundTruthSensors(Subsystem):
 
         Args:
             imu: Initialised MPU6050 hardware driver instance.
+            imu_translation: Bench-frame translation of the IMU chip (from CAD).
             filter_kp: Mahony filter proportional gain.
             filter_ki: Mahony filter integral gain.
             zeroing_samples: Number of gyro samples averaged during zeroing.
@@ -36,7 +39,11 @@ class GroundTruthSensors(Subsystem):
         super().__init__()
 
         self._imu = imu
+        self._imu_translation = imu_translation
         self._filter = MahonyFilter(kp=filter_kp, ki=filter_ki)
+
+        inst = ntcore.NetworkTableInstance.getDefault()
+        self._pub_pose = inst.getStructTopic("sensors/imu_pose", Pose3d).publish()
 
         self._last_timestamp = Timer.getTimestamp()
 
@@ -145,3 +152,6 @@ class GroundTruthSensors(Subsystem):
         sd.putBoolean("imu/is_zeroed", self._zeroed)
         sd.putBoolean("imu/is_zeroing", self._zeroing_active)
         sd.putNumber("imu/zero_count", self._zero_count)
+
+        imu_pose = Pose3d(self._imu_translation, self._filter.get_rotation())
+        self._pub_pose.set(imu_pose)

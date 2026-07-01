@@ -59,7 +59,7 @@ RPY (radians) → N11 conversion uses `CalibrationMap.inverse()`, a degree-2 pol
 |---|---|---|
 | **UTILITY** | Calibrate Servos | Random-position sweep → linear slew → IMU recording → CSV for offline map fitting |
 | **UTILITY** | Zero IMU | Re-run gyro-bias estimation in isolation |
-| **AUTONOMOUS** | Static Pose Test | Per-pose: profile to target → IMU stability check → 1 s sampling window. Records IMU, PV error, expected tag IDs |
+| **AUTONOMOUS** | Static Pose Test | Per-pose: profile to target → IMU stability check → 1 s sampling window. Records IMU ground-truth orientation and per-tag (IDs 6/7) PhotonVision camera-pose error (x/y/z translation + r/p/y rotation RMS) |
 | **AUTONOMOUS** | Dynamic Sweep Test | Sinusoidal sweeps at increasing velocity |
 | **TELEOPERATED** | Manual Operation | Joystick-driven servo positioner |
 | **TELEOPERATED** | Home Servos | Linear slew all axes back to centre |
@@ -108,15 +108,16 @@ scp lvuser@systemcore-6708.local:/home/lvuser/calibration_data/servo_calib_*.csv
 | Column | Description |
 |---|---|
 | `pose_idx` | 0-based pose index |
-| `expected_tags` | AprilTag IDs expected in view |
+| `expected_tags` | Expected tag names (`left`/`right`) for this pose |
 | `cmd_roll (rad)` / `cmd_pitch (rad)` / `cmd_yaw (rad)` | Commanded camera orientation |
-| `imu_count` / `pv_count` | Samples in the 1 s window |
+| `imu_count` | IMU samples in the 1 s window |
+| `pv_tag_detections` | Total tag-based camera-pose samples from PhotonVision (across all visible bench tags) |
 | `imu_mean_roll (rad)` / … | Mean IMU Euler angles |
 | `imu_std_roll (rad)` / … | Standard deviation of IMU Euler angles |
-| `rms_dx (m)` / `rms_dy (m)` / `rms_dz (m)` | RMS translation error (GT⁻¹ × PV, camera frame) |
-| `rms_droll (rad)` / `rms_dpitch (rad)` / `rms_dyaw (rad)` | RMS rotation error |
+| `rms_dx (m)` / `rms_dy (m)` / `rms_dz (m)` | RMS translation error of PV camera pose vs ground-truth camera pose |
+| `rms_droll (rad)` / `rms_dpitch (rad)` / `rms_dyaw (rad)` | RMS rotation error of PV camera pose vs ground-truth camera pose |
 
-Rows with `pv_count = 0` indicate no PhotonVision data at that pose.
+Rows with `pv_tag_detections = 0` indicate no PhotonVision data at that pose.
 
 ## Project layout
 
