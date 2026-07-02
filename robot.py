@@ -192,31 +192,46 @@ class Robot(OpModeRobot):
             },
         )
 
+        self._camera_translation = cfg.cad.camera_pose_in_bench.translation()
+
         self._init_publishers(cfg)
 
     def _init_publishers(self, cfg: type[BenchConfig]) -> None:
         """Create struct-topic publishers for fixed targets and camera poses."""
         inst = ntcore.NetworkTableInstance.getDefault()
-        table = inst.getTable("targets")
 
-        def _pose_pub(path: str) -> ntcore.StructPublisher:
+        def _pose_pub(table: ntcore.NetworkTable, path: str) -> ntcore.StructPublisher:
             """Return a Pose3d struct publisher at ``table/path``."""
             topic = table.getStructTopic(path, Pose3d)
             return topic.publish()
 
-        self._pub_target_left = _pose_pub("left_tag")
-        self._pub_target_right = _pose_pub("right_tag")
-        self._pub_charuco = _pose_pub("charuco_board")
+        tgt = inst.getTable("targets")
+        self._pub_target_left = _pose_pub(tgt, "left_tag")
+        self._pub_target_right = _pose_pub(tgt, "right_tag")
+        self._pub_charuco = _pose_pub(tgt, "charuco_board")
 
         self._pub_target_left.set(cfg.cad.left_tag_pose)
         self._pub_target_right.set(cfg.cad.right_tag_pose)
         self._pub_charuco.set(cfg.cad.charuco_board_pose)
 
+        sr = inst.getTable("sensors")
+        self._pub_gt_pose = _pose_pub(sr, "camera_pose")
+
     def robotPeriodic(self) -> None:
-        """Advance all hardware subsystems by one 20 ms cycle."""
+        """Advance all hardware subsystems and publish ground-truth camera pose.
+
+        The ground-truth camera pose is computed each cycle from the fixed CAD
+        camera translation and the latest IMU filter rotation.
+        """
         self.sensors.periodic()
         self.positioner.periodic()
         self.vision.periodic()
+
+        gt_pose = Pose3d(
+            self._camera_translation,
+            self.sensors.get_rotation(),
+        )
+        self._pub_gt_pose.set(gt_pose)
 
 
 import modes.calibrate_servos  # noqa: E402, F401

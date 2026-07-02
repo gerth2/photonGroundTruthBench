@@ -13,7 +13,6 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import ntcore
 import wpilib
 from wpilib import PeriodicOpMode, SmartDashboard, Timer
 from wpimath import Pose3d, Rotation3d, Transform3d
@@ -27,8 +26,6 @@ from robot import autonomous  # noqa: E402
 
 _STABILITY_DURATION_S = 1.0
 _STABILITY_RAD = math.radians(0.5)
-_STABILITY_TIMEOUT_S = 5.0
-_SAMPLE_DURATION_S = 1.0
 
 
 class Phase:
@@ -76,6 +73,8 @@ class StaticPoseMode(PeriodicOpMode):
         cad = BenchConfig.cad
         self._camera_translation = cad.camera_pose_in_bench.translation()
         self._storage_path = vc.test_results_path
+        self._settle_duration_s = vc.static_settle_duration_s
+        self._sample_duration_s = vc.static_sample_duration_s
 
         self._poses: list[tuple[float, float, float]] = [
             (math.radians(p), math.radians(y), math.radians(r))
@@ -99,10 +98,8 @@ class StaticPoseMode(PeriodicOpMode):
         self._window_pv: list[tuple[int, Pose3d]] = []
         self._results: list[WindowResult] = []
 
-        inst = ntcore.NetworkTableInstance.getDefault()
-        st = inst.getTable("static_pose")
-        self._pub_gt_pose = st.getStructTopic("ground_truth_pose", Pose3d).publish()
-        self._pub_pv_pose = st.getStructTopic("pv_camera_pose", Pose3d).publish()
+        self._gt_pose: Pose3d | None = None
+        self._pv_pose: Pose3d | None = None
 
     def start(self) -> None:
         """Reset all state and begin IMU zeroing."""
@@ -124,12 +121,13 @@ class StaticPoseMode(PeriodicOpMode):
             self._zeroing()
             return
         if self._pose_index >= len(self._poses):
-            self._flush_csv()
-            p0, y0, r0 = self._poses[0]
-            self._robot.positioner.set_goal_rad(p0, y0, r0)
+            if self._phase is not Phase.DONE:
+                self._flush_csv()
+                p0, y0, r0 = self._poses[0]
+                self._robot.positioner.set_goal_rad(p0, y0, r0)
+                self._done = True
+                self._completed_at = time.strftime("%Y-%m-%d %H:%M:%S")
             self._phase = Phase.DONE
-            self._done = True
-            self._completed_at = time.strftime("%Y-%m-%d %H:%M:%S")
             return
         if self._phase is Phase.MOVING:
             self._moving()
@@ -193,10 +191,10 @@ class StaticPoseMode(PeriodicOpMode):
             self._start_sampling()
             return
 
-        if elapsed >= _STABILITY_TIMEOUT_S:
+        if elapsed >= self._settle_duration_s:
             SmartDashboard.putString(
                 "static_pose/warning",
-                f"pose {self._pose_index}: stability timeout after {_STABILITY_TIMEOUT_S} s",
+                f"pose {self._pose_index}: stability timeout after {self._settle_duration_s} s",
             )
             self._start_sampling()
 
@@ -223,7 +221,7 @@ class StaticPoseMode(PeriodicOpMode):
         for tag_id, cam_pose in tag_cam_poses.items():
             self._window_pv.append((tag_id, cam_pose))
 
-        if Timer.getTimestamp() - self._phase_start_time < _SAMPLE_DURATION_S:
+        if Timer.getTimestamp() - self._phase_start_time < self._sample_duration_s:
             return
 
         rolls = [s[0] for s in self._window_imu]
@@ -245,7 +243,6 @@ class StaticPoseMode(PeriodicOpMode):
             self._camera_translation,
             Rotation3d(imu_mean[0], imu_mean[1], imu_mean[2]),
         )
-        self._pub_gt_pose.set(gt_pose)
 
         err_xs: list[float] = []
         err_ys: list[float] = []

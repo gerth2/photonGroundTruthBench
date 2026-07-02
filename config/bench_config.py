@@ -43,7 +43,6 @@ class IMUConfig:
     accel_full_scale_g: int = 2
 
     zeroing_samples: int = 100
-    zeroing_interval_ms: int = 10
 
     filter_kp: float = 0.5
     filter_ki: float = 0.001

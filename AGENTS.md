@@ -194,7 +194,14 @@ expected_pose = Pose3d(
 ```
 
 The IMU provides the camera's orientation; the CAD model provides the camera's
-translation relative to the bench origin.
+translation relative to the bench origin.  The ground-truth camera pose is
+re-published every robot cycle on the ``sensors/camera_pose`` struct topic,
+using the latest IMU filter rotation.
+
+The IMU chip itself is physically offset from the camera by ``camera_to_imu``.
+Its own pose (``sensors/imu_pose``) orbits around the ground-truth camera
+pose — this is expected, as the IMU measures rotation about the camera's
+focal point.
 
 ### PhotonVision camera pose (per tag)
 
