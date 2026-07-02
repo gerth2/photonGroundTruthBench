@@ -60,10 +60,6 @@ class CADConstants:
         Rotation3d(0.0, 0.0, 0.0),
     )
 
-    camera_focal_point_offset = Translation3d(0.01, 0.0, 0.0)
-
-    tag_size_m: float = 0.1524  # 6-inch AprilTag (family 36h11)
-
     left_tag_id: int = 6
     right_tag_id: int = 7
 
